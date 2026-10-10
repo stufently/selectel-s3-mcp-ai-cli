@@ -17,8 +17,10 @@
   Новая ветка: `v1-selectel` от BASE_SHA.
 - Живое дерево `/home/deploy/github/selectel-s3-mcp-ai-cli` не трогать.
 - **push в origin запрещён**, работу заберёт постановщик через `git fetch` из клона.
-- Эта спека приезжает в клон untracked: `docs/specs/v1-selectel.md`. **Закоммить её
-  вместе с работой** (первым коммитом).
+- Эта спека (`docs/specs/v1-selectel.md`) уже закоммичена постановщиком в клоне
+  (между BASE_SHA и HEAD клона лежат только коммиты постановщика в `docs/specs/`).
+  Перезапуск после остановки по двум дефектам критериев (actionlint-флаг и путь модуля
+  в AC-006) — оба исправлены и проверены руками.
 - Всё выполняется в Docker под текущим uid (`-u "$(id -u):$(id -g)"`), ничего не ставить
   на хост. Кэш Go — каталог `$HOME/.cache/sel-s3-go` (постановщик создал, владелец — ты).
 - Образы уже скачаны: `golang:1.27.2`, `golangci/golangci-lint:v2.14.0`,
@@ -364,7 +366,7 @@ CLI бинарём через `os/exec`: `mb`, `cp` 20 МиБ туда-обра�
 
 - **AC-005** MCP по stdio: состав инструментов по уровням — `bash scripts/mcp_smoke.sh`
 
-- **AC-006** Провайдер изолирован в internal/provider — `bash -c 'test -d internal/provider || exit 1; git grep -qi selectel -- internal/provider || exit 1; git grep -qi selectel -- "internal/*.go" ":(exclude)internal/provider/**"; test $? -eq 1 || exit 1; git grep -qE "selcloud|srvstorage" -- "*.go" ":(exclude)internal/provider/**"; test $? -eq 1'`
+- **AC-006** Провайдер изолирован в internal/provider — `bash -c 'test -d internal/provider || exit 1; git grep -qi selectel -- internal/provider || exit 1; out=$(git grep -iI selectel -- "internal/*.go" ":(exclude)internal/provider/**"); rc=$?; test $rc -le 1 || exit 1; test -z "$(printf "%s\n" "$out" | grep -v "github.com/stufently/selectel-s3-mcp-ai-cli/" | grep -v "^$")" || exit 1; git grep -qE "selcloud|srvstorage" -- "*.go" ":(exclude)internal/provider/**"; test $? -eq 1'` (строки с путём модуля в import не считаются утечкой)
 
 - **AC-007** Мутационные ворота безопасности — `bash scripts/mutation_gate.sh`
 
@@ -372,7 +374,7 @@ CLI бинарём через `os/exec`: `mb`, `cp` 20 МиБ туда-обра�
 
 - **AC-009** Docker-образ собирается и не работает от root — `bash -c 'docker build -q -t selectel-s3-mcp-ai-cli:acceptance . >/dev/null && docker run --rm selectel-s3-mcp-ai-cli:acceptance version | grep -q "^selectel-s3 0.1.0" && test "$(docker inspect -f "{{.Config.User}}" selectel-s3-mcp-ai-cli:acceptance)" = "65532:65532"'`
 
-- **AC-010** actionlint — `bash -c 'docker run --rm -v "$PWD:/repo:ro" -w /repo rhysd/actionlint:1.7.12 -color=never'`
+- **AC-010** actionlint — `bash -c 'docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/repo:ro" -w /repo rhysd/actionlint:1.7.12 -no-color'`
 
 - **AC-011** Документация, compat и схема реестра — `bash scripts/check_docs.sh`
 
