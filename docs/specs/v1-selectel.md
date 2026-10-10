@@ -7,7 +7,7 @@
 - Дата: 2026-10-10.
 - BASE_SHA: `a3dcfc82f3fe847a056ebee561fabc1ef54a8814` — «Scaffold repo and Selectel S3 research».
 - Исполнитель: **Codex (`cx`)** — прямое указание владельца для этого проекта.
-- Ревьюеры по `cross-review-v1` для Codex: `agy` + `grok`.
+- Ревью: постановщик после сдачи (см. раздел 8).
 - Размер: весь v1 одной вехой — осознанное решение владельца (обычный лимит вехи
   превышен намеренно). Работай последовательно по разделу 5, коммить по шагам.
 
@@ -24,7 +24,7 @@
 - **Продолжение после второй остановки (elicitation, gosec):** в ветке `v1-selectel` уже
   лежат коммиты прошлой попытки (10 из 12 критериев зелёные). Продолжай с HEAD, готовое
   не переписывай: переделай гейт по «Поправке 1» (раздел 4 и 5.5), закрой G304 в тестах
-  по 5.9, добавь тесты и мутации M13–M15, затем полный цикл критериев и `cross-review-v1`.
+  по 5.9, добавь тесты и мутации M13–M15, затем полный цикл критериев (авторевью не нужно, см. раздел 8).
 - Всё выполняется в Docker под текущим uid (`-u "$(id -u):$(id -g)"`), ничего не ставить
   на хост. Кэш Go — каталог `$HOME/.cache/sel-s3-go` (постановщик создал, владелец — ты).
 - Образы уже скачаны: `golang:1.27.2`, `golangci/golangci-lint:v2.14.0`,
@@ -417,45 +417,27 @@ CLI бинарём через `os/exec`: `mb`, `cp` 20 МиБ туда-обра�
 
 - **AC-012** Границы и чистое дерево — `bash -c 'test -z "$(git diff --name-only a3dcfc82f3fe847a056ebee561fabc1ef54a8814..HEAD -- LICENSE TASKS.md CHANGELOG.md docs/research docs/spec-queue.md)" && git ls-files --error-unmatch docs/specs/v1-selectel.md >/dev/null && test -z "$(git status --porcelain -- . ":(exclude)report.json" ":(exclude)report-blocked.md")"'`
 
-## 8. Авторевью `cross-review-v1`
+## 8. Ревью
 
-Пара для Codex: `agy` + `grok`, только чтение. Порядок — дословно по
-`/home/deploy/.claude/skills/executor-milestone/docs/spec-template.md`, раздел
-«Автономное перекрёстное ревью»: реализация → своя проверка → коммит REVIEW_SHA →
-оба ревью параллельно на `BASE_SHA..REVIEW_SHA` → единый список находок → ОДИН заход
-исправлений → FINAL_SHA → одна проверка `REVIEW_SHA..FINAL_SHA` теми же ревьюерами.
-Квитанции пишет только обёртка, путь абсолютный:
-
-```bash
-bash /home/deploy/.claude/skills/executor-milestone/scripts/review_run.sh initial agy --clone <клон> --base a3dcfc82f3fe847a056ebee561fabc1ef54a8814 --range a3dcfc82f3fe847a056ebee561fabc1ef54a8814..<REVIEW_SHA> --context "Веха v1 selectel-s3-mcp-ai-cli, спека docs/specs/v1-selectel.md; только чтение"
-bash /home/deploy/.claude/skills/executor-milestone/scripts/review_run.sh initial grok --clone <клон> --base a3dcfc82f3fe847a056ebee561fabc1ef54a8814 --range a3dcfc82f3fe847a056ebee561fabc1ef54a8814..<REVIEW_SHA> --context "Веха v1 selectel-s3-mcp-ai-cli, спека docs/specs/v1-selectel.md; только чтение"
-```
-
-Фокус для ревьюеров: обход гейта/скоупа/корня файлов, утечка секрета или подписи,
-соответствие таблице 5.4 и features профиля, провайдерский код вне `internal/provider`.
+Авторевью исполнителем в этой вехе **не запускается**: дифф вехи (~290 КБ, только
+продуктовый код ~130 КБ) больше лимита обёртки ревью (100 000 байт), а машинный гейт
+частичных ревью не принимает. Это решение постановщика (поправка 2, 10.10.2026), а не
+повод для остановки. Ревью Codex и agy по частям проводит постановщик после сдачи.
+Тебе: самопроверка по разделам 5.4–5.5 (обход гейта/скоупа/корня файлов, утечка
+секрета или подписи, провайдерский код вне `internal/provider`) и все 12 критериев зелёные.
 
 ## 9. Контракт отчёта
 
-`report.json` в КОРНЕ клона, untracked, схема v2. Записей в `criteria` ровно двенадцать:
-от AC-001 до AC-012, команды — посимвольно из раздела 7. Поля дословно:
-`schema_version` (2), `policy_id` (`cross-review-v1`), `spec_sha256` (sha256 этого файла),
-`base_sha` (`a3dcfc82f3fe847a056ebee561fabc1ef54a8814`), `reviewed_sha`, `final_sha`,
-`executor` (`{"backend": "codex", "model": "<точная модель>"}`), `review` с
-`initial_receipts`, `verification_receipts`, `resolutions`, `handoff_status`, `criteria`.
+`report.json` в КОРНЕ клона, untracked, ровно двенадцать записей — от AC-001 до AC-012,
+команды посимвольно из раздела 7:
 
 ```json
-{"schema_version": 2, "policy_id": "cross-review-v1", "spec_sha256": "…",
- "base_sha": "a3dcfc82f3fe847a056ebee561fabc1ef54a8814", "reviewed_sha": "…", "final_sha": "…",
- "executor": {"backend": "codex", "model": "…"},
- "review": {"initial_receipts": [], "verification_receipts": [], "resolutions": []},
- "handoff_status": "ready",
- "criteria": [{"id": "AC-001", "status": "pass", "command": "…", "rc": 0, "note": "версии зависимостей: …"}]}
+{"criteria": [{"id": "AC-001", "status": "pass", "command": "…", "rc": 0, "note": "версии зависимостей: …"}]}
 ```
 
-Перед сдачей: `python3 /home/deploy/.claude/skills/executor-milestone/scripts/accept_run.py <клон> --spec docs/specs/v1-selectel.md --dry-run` должен дать код 2.
 `blocked` — только когда среда не даёт выполнить критерий: `"rc": null` и дословная
 ошибка в `note`. Обходить несовместимость запрещено (`--no-deps`, `GOTOOLCHAIN=local`,
-`|| true`, `set +e` в командах критериев и т. п.).
+`|| true`, `set +e` в командах критериев и т. п.). Готовые коммиты — в ветке `v1-selectel`.
 
 ## 10. Контракт на невыполнимое
 
