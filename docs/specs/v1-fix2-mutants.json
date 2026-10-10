@@ -1,0 +1,149 @@
+{
+  "base_sha": "d4ac8dfc86f7c0475cff5ee5b053287a548afc11",
+  "mutants": [
+    {
+      "id": "H04",
+      "file": "internal/mcpserver/arguments.go",
+      "line": 45,
+      "original": "\t\t\tfor _, previous := range keys {\n\t\t\t\tif strings.EqualFold(previous, key) {\n\t\t\t\t\treturn fmt.Errorf(\"case-colliding keys %q and %q\", previous, key)\n\t\t\t\t}\n\t\t\t}",
+      "mutated": "\t\t\tif len(keys) > 0 && strings.EqualFold(keys[len(keys)-1], key) {\n\t\t\t\treturn fmt.Errorf(\"case-colliding keys %q and %q\", keys[len(keys)-1], key)\n\t\t\t}",
+      "note": "Не эквивалентен. Сравнение только с соседним ключом. Все фикстуры ставят столкновение рядом (key/Key, x/X). Объект {\"key\":\"a\",\"bucket\":\"b\",\"Key\":\"c\"} и такой же элемент objects принимаются, encoding/json склеивает ключи. Нужен тест на несоседние ключи сверху и внутри элемента objects."
+    },
+    {
+      "id": "H06",
+      "file": "internal/mcpserver/arguments.go",
+      "line": 18,
+      "original": "if _, err := d.Token(); err != io.EOF {",
+      "mutated": "if _, err := d.Token(); false && err != io.EOF {",
+      "note": "Не эквивалентен. Хвост после значения больше не даёт «expected one JSON value». Следующий json.Unmarshal по-прежнему отвергает второе значение, но уже общей фразой «invalid tool arguments» без причины, и сам validateArgumentKeys возвращает nil. Нужен сырой аргумент с двумя JSON-значениями: отказ содержит expected one JSON value, запросов к S3 нет."
+    },
+    {
+      "id": "H07",
+      "file": "internal/mcpserver/server.go",
+      "line": 67,
+      "original": "\t\t\tif e := validateArgumentKeys(req.Params.Arguments); e != nil {\n\t\t\t\treturn failure(fmt.Errorf(\"invalid tool arguments: %w\", e))\n\t\t\t}",
+      "mutated": "\t\t\tif spec.Name == \"s3_delete_object\" || spec.Name == \"s3_delete_objects\" {\n\t\t\t\tif e := validateArgumentKeys(req.Params.Arguments); e != nil {\n\t\t\t\t\treturn failure(fmt.Errorf(\"invalid tool arguments: %w\", e))\n\t\t\t\t}\n\t\t\t}",
+      "note": "Не эквивалентен. Проверка ключей остаётся только у s3_delete_object и s3_delete_objects, а тест бьёт только их. s3_put_object с key/Key доходит до гейта. Нужен тот же отказ на s3_put_object и на вложенном объекте другого инструмента."
+    },
+    {
+      "id": "H10",
+      "file": "internal/config/config.go",
+      "line": 173,
+      "original": "{\"write\": o.AllowWriteChanged, \"delete\": o.AllowDeleteChanged, \"admin\": o.AllowAdminChanged}",
+      "mutated": "{\"write\": false, \"delete\": o.AllowDeleteChanged, \"admin\": o.AllowAdminChanged}",
+      "note": "Не эквивалентен. AllowWriteChanged всегда false. Грант write выживает, потому что enabled=true само входит в условие. Явный отказ проверяется только для delete. Нужен тест: env write,delete и AllowWrite=false при AllowWriteChanged → write выключен, delete включён."
+    },
+    {
+      "id": "H11",
+      "file": "internal/config/config.go",
+      "line": 173,
+      "original": "{\"write\": o.AllowWriteChanged, \"delete\": o.AllowDeleteChanged, \"admin\": o.AllowAdminChanged}",
+      "mutated": "{\"write\": o.AllowWriteChanged, \"delete\": o.AllowDeleteChanged, \"admin\": false}",
+      "note": "Не эквивалентен. То же для admin: явный false не снимает уровень. Нужен тест env admin + AllowAdmin=false при AllowAdminChanged, write не тронут."
+    },
+    {
+      "id": "H12",
+      "file": "internal/cli/cli.go",
+      "line": 280,
+      "original": "o.AllowWriteChanged = cmd.Flags().Changed(\"allow-write\")",
+      "mutated": "o.AllowWriteChanged = false",
+      "note": "Не эквивалентен. CLI не поднимает AllowWriteChanged. Load с полем напрямую по-прежнему верен, а mcp install --allow-write=false при SELECTEL_S3_ALLOW=write запишет --allow-write=true. Пакеты cli и install этот флаг не передают. Нужен тест по образцу TestInstallPersistsExplicitDenials для write."
+    },
+    {
+      "id": "H13",
+      "file": "internal/cli/cli.go",
+      "line": 282,
+      "original": "o.AllowAdminChanged = cmd.Flags().Changed(\"allow-admin\")",
+      "mutated": "o.AllowAdminChanged = false",
+      "note": "Не эквивалентен. --allow-admin=false при env admin не снимает admin. --allow-admin=true всё ещё включает уровень самим bool, дыра в явном отказе. Нужен тест: env admin и флаг --allow-admin=false дают в конфиге --allow-admin=false."
+    },
+    {
+      "id": "H14",
+      "file": "internal/cli/cli.go",
+      "line": 244,
+      "original": "fmt.Sprintf(\"--allow-%s=%t\", level, c.Allow[level])",
+      "mutated": "fmt.Sprintf(\"--allow-%s=%t\", level, c.Allow[level] && level != \"admin\")",
+      "note": "Не эквивалентен. Установщик всегда пишет --allow-admin=false. Оба существующих теста ждут именно false. Если admin разрешён, в конфиг клиента попадёт запрет. Нужен тест: env admin без флага даёт --allow-admin=true."
+    },
+    {
+      "id": "H18",
+      "file": "internal/s3core/objects.go",
+      "line": 107,
+      "original": "if aws.ToString(head.ETag) == \"\" {",
+      "mutated": "if false && aws.ToString(head.ETag) == \"\" {",
+      "note": "Не эквивалентен. Пустой ETag источника больше не отвергается. Фикстура всегда присылает ETag. HEAD без ETag продолжит copy и delete с пустым условием. Нужен тест: первый HEAD без ETag → «source ETag is required for move», DELETE не отправлен."
+    },
+    {
+      "id": "H19",
+      "file": "internal/s3core/objects.go",
+      "line": 110,
+      "original": "sourceETag = head.ETag",
+      "mutated": "sourceETag = aws.String(\"\\\"initial\\\"\")",
+      "note": "Не эквивалентен. В условие подставляется литерал \"initial\", а фикстура использует ровно его. При ETag \"other\" copy и delete уйдут с чужим If-Match, повторный HEAD сочтёт источник изменённым. Нужен тест с ETag \"other\" на обоих HEAD: заголовки copy и delete равны \"other\", удаление одно."
+    },
+    {
+      "id": "H20",
+      "file": "internal/s3core/objects.go",
+      "line": 127,
+      "original": "response.HTTPStatusCode() == http.StatusPreconditionFailed",
+      "mutated": "response.HTTPStatusCode() >= 400",
+      "note": "Не эквивалентен. Любой статус DELETE >= 400 считается сменой источника, не только 412. Подтест 412 остаётся зелёным. Ответ 500 станет «source changed during move; copy kept» вместо «copy succeeded but source deletion failed». Нужен DELETE 500 с проверкой текста deletion failed."
+    },
+    {
+      "id": "H22",
+      "file": "internal/s3core/client.go",
+      "line": 78,
+      "original": "http.StatusTooManyRequests: {}",
+      "mutated": "http.StatusTooManyRequests: {}, http.StatusRequestTimeout: {}",
+      "note": "Не эквивалентен. К 429 добавлен HTTP 408. В aws-sdk-go-v2 v1.47.3 дефолтные статус-коды ретрая — 500, 502, 503, 504; 408 среди них нет. Нужен тест: один ответ 408, операция не повторяется, запросов ровно 1."
+    },
+    {
+      "id": "H28",
+      "file": "internal/cli/transfers.go",
+      "line": 258,
+      "original": "\tif args.Key != \"\" {\n\t\targs.Key = strings.TrimSuffix(args.Key, \"/\") + \"/\"\n\t}\n",
+      "mutated": "",
+      "note": "Не эквивалентен. К ключу больше не дописывается слэш. Успешный тест передаёт Key \"/prefix/\", слэш уже есть. Негативный тест падает на Open раньше склейки. Key \"prefix\" даёт ключ prefixchild/file. Нужен успешный uploadTree с Key \"prefix\" и путём /bucket/prefix/child/file."
+    },
+    {
+      "id": "H29",
+      "file": "internal/cli/transfers.go",
+      "line": 144,
+      "original": "os.OpenRoot(source)",
+      "mutated": "os.OpenRoot(\".\")",
+      "note": "Не эквивалентен. copyRecursive открывает корень \".\", а не исходный каталог. Тесты зовут uploadTree напрямую, cp --recursive не вызывает никто. Обход и чтение пошли бы из текущего каталога. Нужен CLI-тест cp --recursive выбранного каталога: в PUT байты этого каталога."
+    },
+    {
+      "id": "H32",
+      "file": "internal/install/install.go",
+      "line": 173,
+      "original": "strings.TrimPrefix(string(encoded), \"[mcp_servers]\\n\")",
+      "mutated": "strings.TrimPrefix(string(encoded), \"[mcp_servers]\")",
+      "note": "Не эквивалентен. TrimPrefix срезает [mcp_servers] без перевода строки. Маршал начинается с [mcp_servers]\\n, короткий префикс оставляет ведущий перевод строки в управляемом блоке. Тест проверяет чужой префикс, число [mcp_servers]\\n и разбор TOML; пустая строка внутри маркеров ему безразлична. Нужна сверка тела блока: сразу [mcp_servers.<binary>], без пустой строки."
+    },
+    {
+      "id": "H34",
+      "file": "scripts/mutation_gate.go",
+      "line": 129,
+      "original": "signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)",
+      "mutated": "signal.Notify(signals, syscall.SIGTERM)",
+      "note": "Не эквивалентен. Notify больше не слушает SIGINT. Самопроверка шлёт SIGTERM, поэтому файл восстанавливается. SIGINT оставит мутант на диске и не завершит процесс этим обработчиком. Нужен тот же прогон с SIGINT: ненулевой код и исходный файл."
+    },
+    {
+      "id": "H35",
+      "file": "scripts/mutation_gate.go",
+      "line": 54,
+      "original": "\tr.stopping = true\n",
+      "mutated": "",
+      "note": "Не эквивалентен. stop() не ставит stopping. В самопроверке сигнал приходит после apply, гонки нет, файл восстанавливается. Сигнал внутри apply всё ещё позволяет записать мутант поверх уже восстановленного снимка. Нужен прогон, где SIGTERM приходит до WriteFile мутанта, а после выхода байты равны снимку."
+    },
+    {
+      "id": "H36",
+      "file": "scripts/mutation_gate.go",
+      "line": 41,
+      "original": "sha256.Sum256(original)",
+      "mutated": "sha256.Sum256(changed)",
+      "note": "Не эквивалентен. Контрольная сумма считается от изменённых байт. На диск пишется оригинал, сверка с хешем мутанта всегда падает, но байты верные и процесс всё равно выходит с кодом 1. Условие самопроверки (ненулевой код и чистый internal/) выполняется, в stderr «restoration failed». Успешная запись больше не отличается от порчи. Нужна проверка текста «original restored» и равенства хеша снимку."
+    }
+  ]
+}
