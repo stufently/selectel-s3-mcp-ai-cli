@@ -4,6 +4,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stufently/selectel-s3-mcp-ai-cli/internal/analytics"
@@ -23,6 +24,10 @@ type Server struct {
 
 func (s *Server) Close() error { return s.Audit.Close() }
 func New(p provider.Profile, c config.Config, core *s3core.Client, version string) (*Server, error) {
+	confirmations, e := safety.NewConfirmations()
+	if e != nil {
+		return nil, e
+	}
 	audit, e := safety.NewAudit(os.Stderr, c.AuditFile, c.SecretKey, c.AccessKey)
 	if e != nil {
 		return nil, e
@@ -64,18 +69,36 @@ func New(p provider.Profile, c config.Config, core *s3core.Client, version strin
 			if e := json.Unmarshal(req.Params.Arguments, &args); e != nil {
 				return failure(fmt.Errorf("invalid tool arguments"))
 			}
-			var ask safety.Elicitor
+			supportsForm := false
 			if req.Session != nil {
 				ip := req.Session.InitializeParams()
 				if ip != nil && ip.Capabilities != nil && ip.Capabilities.Elicitation != nil && (ip.Capabilities.Elicitation.Form != nil || ip.Capabilities.Elicitation.URL == nil) {
-					ask = func(ctx context.Context, effect string) (bool, error) {
-						res, e := req.Session.Elicit(ctx, &mcp.ElicitParams{Mode: "form", Message: effect, RequestedSchema: map[string]any{"type": "object", "properties": map[string]any{"approved": map[string]any{"type": "boolean", "title": "Approve destructive action"}}, "required": []string{"approved"}}})
-						if e != nil {
-							return false, e
-						}
-						approved, _ := res.Content["approved"].(bool)
-						return res.Action == "accept" && approved, nil
+					supportsForm = true
+				}
+			}
+			var ask safety.Elicitor
+			var inputResult *mcp.CallToolResult
+			inputRequired := errors.New("confirmation input required")
+			if req.Params.InputResponses != nil || req.Params.RequestState != "" {
+				if e := confirmations.Consume(spec.Name, req.Params.Arguments, req.Params.RequestState); e != nil {
+					return failure(e)
+				}
+				response, ok := req.Params.InputResponses["confirm"].(*mcp.ElicitResult)
+				if !supportsForm || !ok || response == nil || response.Action != "accept" {
+					return failure(fmt.Errorf("declined: human confirmation was not accepted"))
+				}
+				ask = func(context.Context, string) (bool, error) { return true, nil }
+			} else if supportsForm {
+				ask = func(_ context.Context, effect string) (bool, error) {
+					state, e := confirmations.Issue(spec.Name, req.Params.Arguments)
+					if e != nil {
+						return false, e
 					}
+					inputResult = &mcp.CallToolResult{
+						InputRequests: mcp.InputRequestMap{"confirm": &mcp.ElicitParams{Mode: "form", Message: effect, RequestedSchema: map[string]any{"type": "object", "properties": map[string]any{"approved": map[string]any{"type": "boolean", "title": "Approve destructive action"}}, "required": []string{"approved"}}}},
+						RequestState:  state,
+					}
+					return false, inputRequired
 				}
 			}
 			var result any
@@ -87,6 +110,10 @@ func New(p provider.Profile, c config.Config, core *s3core.Client, version strin
 				result, e = core.Execute(ctx, spec.Name, args, ask)
 			}
 			if e != nil {
+				if errors.Is(e, inputRequired) {
+					outcome = "input_required"
+					return inputResult, nil
+				}
 				return failure(e)
 			}
 			data, e := json.Marshal(result)

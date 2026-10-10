@@ -2,7 +2,9 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stufently/selectel-s3-mcp-ai-cli/internal/config"
 	"github.com/stufently/selectel-s3-mcp-ai-cli/internal/provider"
@@ -17,55 +19,177 @@ import (
 	"time"
 )
 
+// The matrix catches direct elicitation on the new protocol and policy bypasses.
 func TestElicitationEndToEnd(t *testing.T) {
-	p, e := provider.Load()
-	if e != nil {
-		t.Fatal(e)
-	}
-	for _, action := range []string{"accept", "decline", "cancel"} {
-		t.Run(action, func(t *testing.T) {
-			var requests atomic.Int32
-			httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { requests.Add(1); w.WriteHeader(204) }))
-			defer httpServer.Close()
-			cfg := config.Config{Pool: p.DefaultPool, Endpoint: httpServer.URL, AccessKey: "fake", SecretKey: "fake-secret", Policy: "elicit", Allow: map[string]bool{"delete": true}}
-			core, e := s3core.New(cfg, p)
-			if e != nil {
-				t.Fatal(e)
-			}
-			server, e := New(p, cfg, core, "test")
-			if e != nil {
-				t.Fatal(e)
-			}
-			defer func() { _ = server.Close() }()
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			ct, st := mcp.NewInMemoryTransports()
-			ss, e := server.MCP.Connect(ctx, st, nil)
-			if e != nil {
-				t.Fatal(e)
-			}
-			defer func() { _ = ss.Close() }()
-			options := &mcp.ClientOptions{ElicitationHandler: func(_ context.Context, request *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-				if request.Params.Mode != "form" || !strings.Contains(request.Params.Message, "bucket/key") {
-					t.Fatal("wrong elicitation effect")
+	for _, protocol := range []string{"2026-07-28", "2025-11-25"} {
+		for _, policy := range []string{"confirm", "elicit", "block", "allow"} {
+			for _, capable := range []bool{false, true} {
+				for _, action := range []string{"accept", "decline", "cancel"} {
+					for _, confirm := range []bool{false, true} {
+						t.Run(fmt.Sprintf("%s/%s/client=%v/%s/confirm=%v", protocol, policy, capable, action, confirm), func(t *testing.T) {
+							options := &mcp.ClientOptions{}
+							var forms atomic.Int32
+							if capable {
+								options.ElicitationHandler = func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+									forms.Add(1)
+									if req.Params.Mode != "form" || !strings.Contains(req.Params.Message, "bucket/key") {
+										t.Error("wrong elicitation effect")
+									}
+									return &mcp.ElicitResult{Action: action, Content: map[string]any{"approved": true}}, nil
+								}
+							}
+							ctx, cs, requests := confirmationClient(t, policy, options, protocol)
+							out, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "s3_delete_object", Arguments: map[string]any{"bucket": "bucket", "key": "key", "confirm": confirm}})
+							if err != nil {
+								t.Fatal(err)
+							}
+							want := policy == "allow" || policy == "confirm" && (capable && action == "accept" || !capable && confirm) || policy == "elicit" && capable && action == "accept"
+							wantRequests := int32(0)
+							if want {
+								wantRequests = 1
+							}
+							if requests.Load() != wantRequests || out.IsError == want {
+								t.Fatalf("MRTR_GATE: requests=%d want=%d error=%v content=%+v", requests.Load(), wantRequests, out.IsError, out.Content)
+							}
+							wantForms := int32(0)
+							if capable && (policy == "confirm" || policy == "elicit") {
+								wantForms = 1
+							}
+							if forms.Load() != wantForms {
+								t.Fatalf("MRTR_FORMS: forms=%d want=%d", forms.Load(), wantForms)
+							}
+						})
+					}
 				}
-				return &mcp.ElicitResult{Action: action, Content: map[string]any{"approved": true}}, nil
-			}}
-			client, e := mcp.NewClient(&mcp.Implementation{Name: "elicitation-tests", Version: "test"}, options).Connect(ctx, ct, nil)
-			if e != nil {
-				t.Fatal(e)
 			}
-			defer func() { _ = client.Close() }()
-			result, e := client.CallTool(ctx, &mcp.CallToolParams{Name: "s3_delete_object", Arguments: map[string]any{"bucket": "bucket", "key": "key", "confirm": true}})
-			if e != nil {
-				t.Fatal(e)
+		}
+	}
+}
+
+func confirmationClient(t *testing.T, policy string, options *mcp.ClientOptions, protocol string) (context.Context, *mcp.ClientSession, *atomic.Int32) {
+	t.Helper()
+	p, err := provider.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := new(atomic.Int32)
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { requests.Add(1); w.WriteHeader(http.StatusNoContent) }))
+	t.Cleanup(endpoint.Close)
+	cfg := config.Config{Pool: p.DefaultPool, Endpoint: endpoint.URL, AccessKey: "fake", SecretKey: "fake-secret", Policy: policy, Allow: map[string]bool{"delete": true, "write": true}}
+	core, err := s3core.New(cfg, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(p, cfg, core, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	ct, st := mcp.NewInMemoryTransports()
+	ss, err := server.MCP.Connect(ctx, st, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ss.Close() })
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "confirmation-tests", Version: "test"}, options).Connect(ctx, ct, &mcp.ClientSessionOptions{ProtocolVersion: protocol})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+	if cs.InitializeResult().ProtocolVersion != protocol {
+		t.Fatalf("negotiated wrong protocol: %s", cs.InitializeResult().ProtocolVersion)
+	}
+	return ctx, cs, requests
+}
+
+func manualConfirmation(t *testing.T) (context.Context, *mcp.ClientSession, *atomic.Int32, *mcp.CallToolParams, *mcp.CallToolResult) {
+	t.Helper()
+	opts := &mcp.ClientOptions{MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true}, ElicitationHandler: func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		return &mcp.ElicitResult{Action: "accept"}, nil
+	}}
+	ctx, cs, requests := confirmationClient(t, "elicit", opts, "2026-07-28")
+	params := &mcp.CallToolParams{Name: "s3_delete_object", Arguments: map[string]any{"bucket": "bucket", "key": "key"}}
+	pending, err := cs.CallTool(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.IsError || !pending.NeedsInput() || len(pending.InputRequests) != 1 || pending.RequestState == "" || len(pending.Content) != 0 || pending.StructuredContent != nil || requests.Load() != 0 {
+		t.Fatalf("MRTR_PENDING: missing content-free signed confirmation: %+v requests=%d", pending, requests.Load())
+	}
+	form, ok := pending.InputRequests["confirm"].(*mcp.ElicitParams)
+	if !ok || form.Mode != "form" || !strings.Contains(form.Message, "bucket/key") {
+		t.Fatal("MRTR_PENDING: wrong confirmation form")
+	}
+	params.RequestState = pending.RequestState
+	params.InputResponses = mcp.InputResponseMap{"confirm": &mcp.ElicitResult{Action: "accept", Content: map[string]any{"approved": true}}}
+	return ctx, cs, requests, params, pending
+}
+
+func TestConfirmationSignature(t *testing.T) {
+	ctx, cs, requests, params, _ := manualConfirmation(t)
+	parts := strings.Split(params.RequestState, ".")
+	if len(parts) != 2 {
+		t.Fatal("state envelope must have payload and signature")
+	}
+	sig, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil || len(sig) == 0 {
+		t.Fatal("invalid signature encoding")
+	}
+	sig[0] ^= 1
+	params.RequestState = parts[0] + "." + base64.RawURLEncoding.EncodeToString(sig)
+	out, err := cs.CallTool(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.IsError || requests.Load() != 0 {
+		t.Fatalf("STATE_SIGNATURE: forged signature accepted, requests=%d", requests.Load())
+	}
+}
+
+func TestConfirmationArguments(t *testing.T) {
+	ctx, cs, requests, params, _ := manualConfirmation(t)
+	params.Arguments = map[string]any{"bucket": "bucket", "key": "different", "confirm": true}
+	out, err := cs.CallTool(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.IsError || requests.Load() != 0 {
+		t.Fatalf("STATE_ARGUMENTS: changed arguments accepted, requests=%d", requests.Load())
+	}
+}
+
+func TestConfirmationNonce(t *testing.T) {
+	ctx, cs, requests, params, _ := manualConfirmation(t)
+	// Confirm is intentionally excluded from the digest; JSON member order is immaterial.
+	params.Arguments = json.RawMessage(`{"confirm":true,"key":"key","bucket":"bucket"}`)
+	out, err := cs.CallTool(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.IsError || requests.Load() != 1 {
+		t.Fatalf("STATE_ACCEPT: valid confirmation failed: %+v requests=%d", out, requests.Load())
+	}
+	out, err = cs.CallTool(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.IsError || requests.Load() != 1 {
+		t.Fatalf("STATE_NONCE: repeated confirmation executed, requests=%d", requests.Load())
+	}
+}
+
+func TestForgedInputResponses(t *testing.T) {
+	for _, policy := range []string{"confirm", "elicit", "block", "allow"} {
+		t.Run(policy, func(t *testing.T) {
+			ctx, cs, requests := confirmationClient(t, policy, &mcp.ClientOptions{MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true}}, "2026-07-28")
+			out, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "s3_delete_object", Arguments: map[string]any{"bucket": "bucket", "key": "key", "confirm": true}, InputResponses: mcp.InputResponseMap{"confirm": &mcp.ElicitResult{Action: "accept"}}})
+			if err != nil {
+				t.Fatal(err)
 			}
-			want := int32(0)
-			if action == "accept" {
-				want = 1
-			}
-			if requests.Load() != want || result.IsError != (action != "accept") {
-				t.Fatalf("elicitation %s requests=%d error=%v content=%+v", action, requests.Load(), result.IsError,result.Content[0])
+			if !out.IsError || requests.Load() != 0 {
+				t.Fatalf("STATE_MISSING: input response without state accepted, requests=%d", requests.Load())
 			}
 		})
 	}
