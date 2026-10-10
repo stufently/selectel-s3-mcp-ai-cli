@@ -70,6 +70,23 @@ AIStor MCP, аудит каждого вызова как в XNS, скоуп б�
 
 Утверждений о существующем коде нет: в репо пока только документы.
 
+**Поправка 1 (после остановки исполнителя, 10.10.2026), проверено чтением go-sdk v1.8.0:**
+- `latestProtocolVersion = "2026-07-28"` (`mcp/shared.go:50`); при таком протоколе
+  `ServerSession.Elicit` из обработчика запрещён (`mcp/server.go`,
+  `assertServerInitiatedRequestAllowed`: «return an InputRequests map instead», SEP-2322).
+  Прямой вызов `Elicit` в гейте **запрещён**.
+- Правильный путь — multi round-trip: обработчик возвращает `*mcp.CallToolResult` с полями
+  `InputRequests` (`mcp.InputRequestMap`, значение `*mcp.ElicitParams`) и `RequestState`;
+  клиент выполняет запрос и повторяет `tools/call` с `CallToolParams.InputResponses`
+  (`mcp.InputResponseMap`, значение `*mcp.ElicitResult`) и тем же `RequestState`
+  (`mcp/protocol.go`, ~`:220–330`). Результат с `InputRequests` не должен содержать content
+  (`mcp/mrtr.go:45`: иначе «server bug»).
+- Для клиентов на старом протоколе SDK делает это сам: `serverMultiRoundTripMiddleware`
+  (`mcp/mrtr.go:115–165`) выполняет `elicitation/create` и повторно вызывает обработчик с
+  `InputResponses`. Значит одна реализация через `InputRequests` работает для обоих протоколов.
+- Комментарий SDK к `RequestState`: «Unauthenticated servers must encrypt, sign and verify
+  this value».
+
 ## 5. Что сделать
 
 ### 5.1 Каркас
@@ -200,6 +217,16 @@ rate_limits), `presign_max_seconds: 604800` + `verified: false` (значени�
   - `block`: отказ всегда; `allow`: без гейта.
   Отказ гейта — до любого запроса к S3: unit-тест на `httptest`-сервере проверяет, что
   при отказе сервер получил **ноль** запросов (не только что объект на месте).
+- **Механизм подтверждения (поправка 1).** Поддержку elicitation определять по
+  `ClientCapabilities.Elicitation` из `InitializeParams` сессии. Подтверждение — только через
+  `InputRequests` (ключ `confirm`, `*mcp.ElicitParams` с формой accept/decline и человеческим
+  описанием эффекта) + `RequestState`. `RequestState` = HMAC-SHA256 на ключе, случайном на
+  процесс (32 байта из `crypto/rand`), поверх `{tool, sha256 канонических аргументов без
+  confirm, nonce, expires_at (+5 мин)}`. На повторном вызове выполнять операцию только если:
+  подпись верна, срок не истёк, nonce ещё не использован (одноразовый), дайджест аргументов
+  совпадает, в `InputResponses["confirm"]` — `*mcp.ElicitResult` с `Action == "accept"`.
+  `InputResponses` без валидного `RequestState` (подделка уже на первом вызове), повтор
+  nonce, изменённые аргументы, decline/cancel — отказ **без запросов к S3**.
 - **Скоуп** `SELECTEL_S3_ALLOWED_BUCKETS` (через запятую) и `SELECTEL_S3_ALLOWED_PREFIXES`
   (`bucket/prefix/`, через запятую). Проверка на КАЖДОМ инструменте до запроса;
   `s3_list_buckets` фильтрует; префикс сравнивается по границе сегмента
@@ -287,7 +314,9 @@ versions | doctor | auth set|status | compat --markdown | mcp | mcp install | sk
 ### 5.9 Сборка и CI
 
 - `.golangci.yml` (v2): `govet, staticcheck, errcheck, ineffassign, unused, gosec`
-  (без исключений `nolint` без комментария-причины).
+  (без исключений `nolint` без комментария-причины). Разрешено одно исключение в конфиге:
+  `gosec G304` для файлов `_test.go` и каталога `conformance/` (чтение путей из
+  `t.TempDir()`), с комментарием-причиной. В нетестовом коде G304 не глушить.
 - `.goreleaser.yaml` (v2): linux/darwin/windows × amd64/arm64, tar.gz (windows — zip),
   checksums, ldflags версии.
 - `Dockerfile`: multi-stage `golang:1.27.2` → `scratch` с ca-certificates, `USER 65532:65532`,
@@ -317,7 +346,8 @@ versions | doctor | auth set|status | compat --markdown | mcp | mcp install | sk
   `X-Amz-Signature`; M8 `cap:` игнорируется при регистрации; M9 `s3_put_object` без
   `If-None-Match` по умолчанию; M10 файл кредов принимается с правами `0644`;
   M11 `s3_multipart_complete` с `overwrite:false` не проверяет существование цели;
-  M12 `overwrite:true` не идёт под гейт.
+  M12 `overwrite:true` не идёт под гейт; M13 подпись `RequestState` не проверяется;
+  M14 дайджест аргументов не сравнивается; M15 nonce можно использовать повторно.
   Целевые тесты — unit (без S3). Печатает по каждой «killed/survived» и строку ассерта.
 - `scripts/check_docs.sh`: обязательные заголовки README.md/README.en.md (дословно из 5.8);
   `docs/compat.md` совпадает с `compat --markdown` (через Docker); sha256
@@ -326,7 +356,10 @@ versions | doctor | auth set|status | compat --markdown | mcp | mcp install | sk
 ### 5.11 Тесты
 
 Unit (без S3, обычный `go test`): профиль и эндпоинты пулов; приоритет конфигурации и отказ
-по правам файла кредов; матрица гейта (4 политики × клиент с/без elicitation × accept/decline);
+по правам файла кредов; матрица гейта (4 политики × клиент с/без elicitation × accept/decline,
+настоящий in-memory клиент go-sdk и на протоколе `2026-07-28`, и на `2025-11-25`);
+подделка `InputResponses` без `RequestState`, повтор nonce, смена аргументов, просроченное
+состояние — отказ и ноль запросов к S3;
 скоуп (включая `backups` vs `backups-evil`, `..`); fs-guard (симлинк наружу, `..`);
 редактирование; регистрация инструментов против таблицы 5.4 (golden) и `cap:`-флагов
 (тестовый профиль с `object_tagging: true` регистрирует теги); `If-None-Match` через
