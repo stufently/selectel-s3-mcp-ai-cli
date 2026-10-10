@@ -37,12 +37,12 @@ type confirmationState struct {
 	ExpiresAt int64  `json:"expires_at"`
 }
 
-func NewConfirmations() (*Confirmations, error) {
+func NewConfirmations(now func() time.Time) (*Confirmations, error) {
 	key, err := confirmationKey()
 	if err != nil {
 		return nil, fmt.Errorf("cannot initialize confirmation signing key: %w", err)
 	}
-	return &Confirmations{key: key, pending: make(map[string]int64), now: time.Now}, nil
+	return &Confirmations{key: key, pending: make(map[string]int64), now: now}, nil
 }
 
 func argumentDigest(args json.RawMessage) (string, error) {

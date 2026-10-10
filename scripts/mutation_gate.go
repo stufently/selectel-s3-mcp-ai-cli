@@ -79,6 +79,9 @@ func main() {
 		{"M13", "internal/safety/confirmation.go", "if !hmac.Equal(signature, mac.Sum(nil)) {", "if false && !hmac.Equal(signature, mac.Sum(nil)) {", "./internal/mcpserver", "TestConfirmationSignature", "STATE_SIGNATURE:"},
 		{"M14", "internal/safety/confirmation.go", "if state.Digest != digest {", "if false && state.Digest != digest {", "./internal/mcpserver", "TestConfirmationArguments", "STATE_ARGUMENTS:"},
 		{"M15", "internal/safety/confirmation.go", "delete(c.pending, state.Nonce)", "// mutation: nonce is not consumed", "./internal/mcpserver", "TestConfirmationNonce", "STATE_NONCE:"},
+		{"M16", "internal/safety/confirmation.go", "if c.now().Unix() >= state.ExpiresAt {", "if false && c.now().Unix() >= state.ExpiresAt {", "./internal/mcpserver", "TestConfirmationExpired", "STATE_EXPIRED:"},
+		{"M17", "internal/safety/confirmation.go", "state.Tool != tool", "false && state.Tool != tool", "./internal/mcpserver", "TestConfirmationToolChanged", "STATE_TOOL:"},
+		{"M18", "internal/mcpserver/server.go", "response.Action != \"accept\"", "false && response.Action != \"accept\"", "./internal/mcpserver", "TestConfirmationDeclinedCannotBeReused", "STATE_DECLINED:"},
 	}
 	ok := true
 	for _, m := range mutations {

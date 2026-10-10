@@ -24,10 +24,14 @@ type Server struct {
 
 func (s *Server) Close() error { return s.Audit.Close() }
 func New(p provider.Profile, c config.Config, core *s3core.Client, version string) (*Server, error) {
-	confirmations, e := safety.NewConfirmations()
+	confirmations, e := safety.NewConfirmations(time.Now)
 	if e != nil {
 		return nil, e
 	}
+	return newServer(p, c, core, version, confirmations)
+}
+
+func newServer(p provider.Profile, c config.Config, core *s3core.Client, version string, confirmations *safety.Confirmations) (*Server, error) {
 	audit, e := safety.NewAudit(os.Stderr, c.AuditFile, c.SecretKey, c.AccessKey)
 	if e != nil {
 		return nil, e

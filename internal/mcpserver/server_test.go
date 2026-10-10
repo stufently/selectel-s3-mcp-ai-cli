@@ -9,6 +9,7 @@ import (
 	"github.com/stufently/selectel-s3-mcp-ai-cli/internal/config"
 	"github.com/stufently/selectel-s3-mcp-ai-cli/internal/provider"
 	"github.com/stufently/selectel-s3-mcp-ai-cli/internal/s3core"
+	"github.com/stufently/selectel-s3-mcp-ai-cli/internal/safety"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -68,6 +69,11 @@ func TestElicitationEndToEnd(t *testing.T) {
 
 func confirmationClient(t *testing.T, policy string, options *mcp.ClientOptions, protocol string) (context.Context, *mcp.ClientSession, *atomic.Int32) {
 	t.Helper()
+	return confirmationClientAt(t, policy, options, protocol, time.Now)
+}
+
+func confirmationClientAt(t *testing.T, policy string, options *mcp.ClientOptions, protocol string, now func() time.Time) (context.Context, *mcp.ClientSession, *atomic.Int32) {
+	t.Helper()
 	p, err := provider.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +86,11 @@ func confirmationClient(t *testing.T, policy string, options *mcp.ClientOptions,
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := New(p, cfg, core, "test")
+	confirmations, err := safety.NewConfirmations(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := newServer(p, cfg, core, "test", confirmations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,10 +116,15 @@ func confirmationClient(t *testing.T, policy string, options *mcp.ClientOptions,
 
 func manualConfirmation(t *testing.T) (context.Context, *mcp.ClientSession, *atomic.Int32, *mcp.CallToolParams, *mcp.CallToolResult) {
 	t.Helper()
+	return manualConfirmationAt(t, time.Now)
+}
+
+func manualConfirmationAt(t *testing.T, now func() time.Time) (context.Context, *mcp.ClientSession, *atomic.Int32, *mcp.CallToolParams, *mcp.CallToolResult) {
+	t.Helper()
 	opts := &mcp.ClientOptions{MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true}, ElicitationHandler: func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
 		return &mcp.ElicitResult{Action: "accept"}, nil
 	}}
-	ctx, cs, requests := confirmationClient(t, "elicit", opts, "2026-07-28")
+	ctx, cs, requests := confirmationClientAt(t, "elicit", opts, "2026-07-28", now)
 	params := &mcp.CallToolParams{Name: "s3_delete_object", Arguments: map[string]any{"bucket": "bucket", "key": "key"}}
 	pending, err := cs.CallTool(ctx, params)
 	if err != nil {
@@ -177,6 +192,56 @@ func TestConfirmationNonce(t *testing.T) {
 	}
 	if !out.IsError || requests.Load() != 1 {
 		t.Fatalf("STATE_NONCE: repeated confirmation executed, requests=%d", requests.Load())
+	}
+}
+
+func TestConfirmationExpired(t *testing.T) {
+	var seconds atomic.Int64
+	seconds.Store(time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC).Unix())
+	ctx, cs, requests, params, _ := manualConfirmationAt(t, func() time.Time { return time.Unix(seconds.Load(), 0) })
+	seconds.Add(300)
+	out, err := cs.CallTool(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.IsError || requests.Load() != 0 {
+		t.Fatalf("STATE_EXPIRED: expired confirmation executed, requests=%d", requests.Load())
+	}
+}
+
+func TestConfirmationToolChanged(t *testing.T) {
+	ctx, cs, requests, params, _ := manualConfirmation(t)
+	params.Name = "s3_presign_put"
+	out, err := cs.CallTool(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.IsError || requests.Load() != 0 {
+		t.Fatalf("STATE_TOOL: confirmation accepted for another tool, requests=%d", requests.Load())
+	}
+}
+
+func TestConfirmationDeclinedCannotBeReused(t *testing.T) {
+	for _, action := range []string{"decline", "cancel"} {
+		t.Run(action, func(t *testing.T) {
+			ctx, cs, requests, params, _ := manualConfirmation(t)
+			params.InputResponses["confirm"] = &mcp.ElicitResult{Action: action}
+			out, err := cs.CallTool(ctx, params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !out.IsError || requests.Load() != 0 {
+				t.Fatalf("STATE_DECLINED: %s executed, requests=%d", action, requests.Load())
+			}
+			params.InputResponses["confirm"] = &mcp.ElicitResult{Action: "accept"}
+			out, err = cs.CallTool(ctx, params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !out.IsError || requests.Load() != 0 {
+				t.Fatalf("STATE_DECLINED: %s token reused, requests=%d", action, requests.Load())
+			}
+		})
 	}
 }
 

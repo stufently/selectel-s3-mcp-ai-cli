@@ -9,7 +9,7 @@ import (
 )
 
 func TestConfirmationExpiry(t *testing.T) {
-	c, err := NewConfirmations()
+	c, err := NewConfirmations(time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestConfirmationExpiry(t *testing.T) {
 }
 
 func TestConfirmationConcurrentConsumption(t *testing.T) {
-	c, err := NewConfirmations()
+	c, err := NewConfirmations(time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestConfirmationConcurrentConsumption(t *testing.T) {
 }
 
 func TestConfirmationToolBinding(t *testing.T) {
-	c, err := NewConfirmations()
+	c, err := NewConfirmations(time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
