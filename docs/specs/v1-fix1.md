@@ -26,6 +26,8 @@
 - Предположение: `os.Root.Link` есть в Go 1.27 (добавлен в 1.25). Если нет —
   атомарную публикацию без замены сделать через `OpenFile(O_CREATE|O_EXCL)` финального
   имени и копирование; молча заменять на `Rename` нельзя.
+- Предположение: versitygw и Selectel принимают `If-Match` на `DeleteObject` (AWS — с 2024).
+  Если эмулятор его отвергает — остановись по контракту, не убирай заголовок.
 - Предположение: Selectel отвечает на превышение лимита HTTP 429 с кодом, которого нет
   в списке throttle-кодов aws-sdk-go-v2 (живого ответа не видели). Поэтому ретраить
   по статусу 429, а не по коду.
@@ -57,14 +59,22 @@ accept с `approved:true` — выполнение.
 стороны; не заданный — не трогает. Тест `TestExplicitAllowFlagOverridesEnv`
 (`internal/config`): env `write,delete` + явный `--allow-delete=false` → delete выключен,
 write включён; без флага → оба включены.
+`mcp install` записывает в конфиг клиента ИТОГОВОЕ состояние всех трёх уровней явными
+флагами (`--allow-write=true|false`, `--allow-delete=…`, `--allow-admin=…`), чтобы
+унаследованный env не расширил права установленного сервера. Тест
+`TestInstallPersistsExplicitDenials` (`internal/install`): env `delete` + `--allow-delete=false`
+→ в конфиге `--allow-delete=false`.
 
 ### 5.4 FX-4 Перемещение не удаляет изменённый источник
 `internal/s3core/objects.go:105`: после копирования источник удаляется без проверки.
 Делать так: HEAD источника → ETag; `CopyObject` с `CopySourceIfMatch: <ETag>`; перед
 удалением повторный HEAD, ETag другой → источник НЕ удалять, вернуть ошибку
-«source changed during move; copy kept». Тест `TestMoveKeepsChangedSource`
+«source changed during move; copy kept»; совпал → `DeleteObject` с `IfMatch: <ETag>`,
+чтобы окно между HEAD и DELETE тоже не теряло новые данные. Ответ 412 на DELETE →
+та же ошибка «source changed during move; copy kept». Тест `TestMoveKeepsChangedSource`
 (`internal/s3core`, `httptest`-сервер): второй HEAD отдаёт другой ETag → DELETE не
-отправлен; одинаковый → отправлен; в запросе копирования есть `x-amz-copy-source-if-match`.
+отправлен; одинаковый → отправлен; в запросе копирования есть `x-amz-copy-source-if-match`, в DELETE — `If-Match`;
+DELETE с ответом 412 → ошибка «source changed», операция не рапортует успех.
 
 ### 5.5 FX-5 Ретраи 429
 `internal/s3core/client.go:75`: `retry.NewAdaptiveMode()` не ретраит HTTP 429 с
@@ -88,7 +98,8 @@ write включён; без флага → оба включены.
 `Root.Link` временного файла, затем удаление временного); цель существует → ошибка,
 содержимое цели не тронуто. Замена — только при `overwrite:true`, и для
 `s3_download_file` она идёт под гейт так же, как `overwrite:true` у записи в S3
-(добавить `overwrite` в его схему и в `Gated`). Тесты: `TestWriteNoReplace`
+(добавить в его схему `overwrite` и `confirm`, а сам инструмент — в `Gated` при
+`overwrite:true`). Тесты: `TestWriteNoReplace`
 (`internal/safety`): цель создана до публикации → ошибка, содержимое прежнее;
 `TestDownloadFileOverwriteGated` (`internal/mcpserver`): существующая цель без
 `overwrite` → отказ; с `overwrite:true` → запрос подтверждения.
@@ -102,7 +113,9 @@ dotted-заголовком `[mcp_servers.<бинарь>]` без повторн
 
 ### 5.9 FX-9 Мутационные ворота откатывают мутацию по сигналу
 `scripts/mutation_gate.go:23`: откат только `defer`. Добавить откат по SIGINT/SIGTERM
-(`signal.NotifyContext` и восстановление исходника до выхода).
+(восстановление исходника до выхода, код выхода ненулевой). Самопроверка: при env
+`MUTATION_GATE_SELFTEST_SIGNAL=1` ворота накладывают первый мутант, шлют себе SIGTERM
+и должны выйти ненулевым кодом с восстановленным файлом (это проверяет AC-006).
 
 ### 5.10 Ничего лишнего
 Документацию (`README*`, `docs/`) поправить только там, где поведение изменилось
@@ -118,6 +131,10 @@ dotted-заголовком `[mcp_servers.<бинарь>]` без повторн
    Если исправления 5.1–5.9 изменили фрагмент (например SRV03 = FX-1, CFG06 = FX-3),
    переформулируй мутант под новый код так, чтобы он ломал ту же защиту, и запиши
    причину в `note` отчёта. Удалять мутанта или делать его эквивалентным нельзя.
+3. То же для СУЩЕСТВУЮЩИХ мутантов M1…M18: если после исправлений целевой тест
+   перестал их убивать (пример: M18 — `TestConfirmationDeclinedCannotBeReused` шлёт
+   accept без `approved:true`, после FX-1 отказ будет по другой причине), поправь тест
+   так, чтобы отказ был ровно по проверяемой причине.
 
 ## 6. Не трогать
 
@@ -136,14 +153,14 @@ dotted-заголовком `[mcp_servers.<бинарь>]` без повторн
 - **AC-002** Приоритет явного флага — `bash -c 'out=$(bash scripts/go.sh go test -count=1 -v -run "^TestExplicitAllowFlagOverridesEnv$" ./internal/config/ 2>&1); rc=$?; printf "%s\n" "$out" | tail -8; test $rc -eq 0 && printf "%s\n" "$out" | grep -q -- "--- PASS: TestExplicitAllowFlagOverridesEnv "'`
 - **AC-003** Перемещение и ретраи 429 — `bash -c 'out=$(bash scripts/go.sh go test -count=1 -v -run "^(TestMoveKeepsChangedSource|TestRetriesHTTP429)$" ./internal/s3core/ 2>&1); rc=$?; printf "%s\n" "$out" | tail -10; test $rc -eq 0 || exit 1; for t in TestMoveKeepsChangedSource TestRetriesHTTP429; do printf "%s\n" "$out" | grep -q -- "--- PASS: $t " || exit 1; done'`
 - **AC-004** Локальные файлы — `bash -c 'out=$(bash scripts/go.sh go test -count=1 -v -run "^(TestUploadTreeConfinedToRoot|TestWriteNoReplace)$" ./internal/cli/ ./internal/safety/ 2>&1); rc=$?; printf "%s\n" "$out" | tail -10; test $rc -eq 0 || exit 1; for t in TestUploadTreeConfinedToRoot TestWriteNoReplace; do printf "%s\n" "$out" | grep -q -- "--- PASS: $t " || exit 1; done'`
-- **AC-005** Установщик Codex — `bash -c 'out=$(bash scripts/go.sh go test -count=1 -v -run "^TestCodexInstallWithExplicitMcpServersTable$" ./internal/install/ 2>&1); rc=$?; printf "%s\n" "$out" | tail -8; test $rc -eq 0 && printf "%s\n" "$out" | grep -q -- "--- PASS: TestCodexInstallWithExplicitMcpServersTable "'`
-- **AC-006** Откат мутации по сигналу — `bash -c 'grep -q "signal.NotifyContext" scripts/mutation_gate.go && grep -qE "syscall.SIGTERM|unix.SIGTERM" scripts/mutation_gate.go'`
+- **AC-005** Установщик: таблица Codex и явные запреты — `bash -c 'out=$(bash scripts/go.sh go test -count=1 -v -run "^(TestCodexInstallWithExplicitMcpServersTable|TestInstallPersistsExplicitDenials)$" ./internal/install/ 2>&1); rc=$?; printf "%s\n" "$out" | tail -8; test $rc -eq 0 || exit 1; for t in TestCodexInstallWithExplicitMcpServersTable TestInstallPersistsExplicitDenials; do printf "%s\n" "$out" | grep -q -- "--- PASS: $t " || exit 1; done'`
+- **AC-006** Откат мутации по сигналу — `bash -c 'git diff --quiet -- internal || exit 1; docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e GOCACHE=/cache/build -e GOMODCACHE=/cache/mod -e MUTATION_GATE_SELFTEST_SIGNAL=1 -v "$HOME/.cache/sel-s3-go:/cache" -v "$PWD:/src" -w /src golang:1.27.2 go run scripts/mutation_gate.go; rc=$?; test $rc -ne 0 && git diff --quiet -- internal'`
 - **AC-007** Все 37 выживших мутантов внесены в ворота — `bash -c 'for id in G01 G02 C01 C02 C03 C04 SCP02 F01 F02 F03 RD01 RD02 CFG02 CFG03 CFG05 CFG06 SRV02 SRV03 SRV04 REG01 REG03 CL01 CL02 CL03 CL05 CL06 CL07 CL08 CL09 CL10 CL11 CL12 CL13 INS01 INS02 CLI01 CLI02; do grep -qF "{\"$id\"," scripts/mutation_gate.go || { echo "нет $id"; exit 1; }; done'`
 - **AC-008** Сборка, vet и unit-тесты с race — `bash -c 'bash scripts/go.sh sh -c "go build ./... && go vet ./... && go vet -tags conformance ./... && go test -race -count=1 ./..."'`
 - **AC-009** Линтер — `bash -c 'docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e GOCACHE=/cache/build -e GOMODCACHE=/cache/mod -e GOLANGCI_LINT_CACHE=/cache/lint -v "$HOME/.cache/sel-s3-go:/cache" -v "$PWD:/src" -w /src golangci/golangci-lint:v2.14.0 golangci-lint run --build-tags conformance ./...'`
 - **AC-010** Conformance и MCP-смоук — `bash -c 'bash scripts/conformance.sh && bash scripts/mcp_smoke.sh'`
 - **AC-011** Мутационные ворота (все мутанты убиты) и документация — `bash -c 'bash scripts/mutation_gate.sh && bash scripts/check_docs.sh'`
-- **AC-012** Границы и чистое дерево — `bash -c 'test -z "$(git diff --name-only 3b5af397200bb0dd03ce9b104db50d220b7fb1c4..HEAD -- LICENSE TASKS.md CHANGELOG.md docs/research docs/spec-queue.md docs/specs/v1-selectel.md docs/specs/v1-fix1-mutants.json)" && git ls-files --error-unmatch docs/specs/v1-fix1.md >/dev/null && test -z "$(git status --porcelain -- . ":(exclude)report.json" ":(exclude)report-blocked.md")"'`
+- **AC-012** Границы и чистое дерево — `bash -c 'test -z "$(git diff --name-only d842178c85a2adda8507b30a2d2c0e9202a72842..HEAD -- LICENSE TASKS.md CHANGELOG.md docs/research docs/spec-queue.md docs/specs/v1-selectel.md docs/specs/v1-fix1-mutants.json)" && git ls-files --error-unmatch docs/specs/v1-fix1.md >/dev/null && test -z "$(git status --porcelain -- . ":(exclude)report.json" ":(exclude)report-blocked.md")"'`
 
 ## 9. Авторевью
 
