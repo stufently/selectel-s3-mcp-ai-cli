@@ -152,14 +152,14 @@ func TestConfirmationSignature(t *testing.T) {
 	if err != nil || len(sig) == 0 {
 		t.Fatal("invalid signature encoding")
 	}
-	sig[0] ^= 1
+	sig[1] ^= 1 // Keep the first byte intact: every HMAC byte must be checked.
 	params.RequestState = parts[0] + "." + base64.RawURLEncoding.EncodeToString(sig)
 	out, err := cs.CallTool(ctx, params)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !out.IsError || requests.Load() != 0 {
-		t.Fatalf("STATE_SIGNATURE: forged signature accepted, requests=%d", requests.Load())
+	if !out.IsError || !strings.Contains(resultText(out), "confirmation_invalid:") || requests.Load() != 0 {
+		t.Fatalf("STATE_SIGNATURE: forged signature accepted or wrong refusal: %s requests=%d", resultText(out), requests.Load())
 	}
 }
 
@@ -170,8 +170,8 @@ func TestConfirmationArguments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !out.IsError || requests.Load() != 0 {
-		t.Fatalf("STATE_ARGUMENTS: changed arguments accepted, requests=%d", requests.Load())
+	if !out.IsError || !strings.Contains(resultText(out), "confirmation_invalid:") || requests.Load() != 0 {
+		t.Fatalf("STATE_ARGUMENTS: changed arguments accepted or wrong refusal: %s requests=%d", resultText(out), requests.Load())
 	}
 }
 
@@ -190,8 +190,8 @@ func TestConfirmationNonce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !out.IsError || requests.Load() != 1 {
-		t.Fatalf("STATE_NONCE: repeated confirmation executed, requests=%d", requests.Load())
+	if !out.IsError || !strings.Contains(resultText(out), "confirmation_invalid:") || requests.Load() != 1 {
+		t.Fatalf("STATE_NONCE: repeated confirmation executed or wrong refusal: %s requests=%d", resultText(out), requests.Load())
 	}
 }
 
@@ -204,8 +204,8 @@ func TestConfirmationExpired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !out.IsError || requests.Load() != 0 {
-		t.Fatalf("STATE_EXPIRED: expired confirmation executed, requests=%d", requests.Load())
+	if !out.IsError || !strings.Contains(resultText(out), "confirmation_invalid:") || requests.Load() != 0 {
+		t.Fatalf("STATE_EXPIRED: expired confirmation executed or wrong refusal: %s requests=%d", resultText(out), requests.Load())
 	}
 }
 
@@ -216,8 +216,8 @@ func TestConfirmationToolChanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !out.IsError || requests.Load() != 0 {
-		t.Fatalf("STATE_TOOL: confirmation accepted for another tool, requests=%d", requests.Load())
+	if !out.IsError || !strings.Contains(resultText(out), "confirmation_invalid:") || requests.Load() != 0 {
+		t.Fatalf("STATE_TOOL: confirmation accepted for another tool or wrong refusal: %s requests=%d", resultText(out), requests.Load())
 	}
 }
 
@@ -225,21 +225,21 @@ func TestConfirmationDeclinedCannotBeReused(t *testing.T) {
 	for _, action := range []string{"decline", "cancel"} {
 		t.Run(action, func(t *testing.T) {
 			ctx, cs, requests, params, _ := manualConfirmation(t)
-			params.InputResponses["confirm"] = &mcp.ElicitResult{Action: action}
+			params.InputResponses["confirm"] = &mcp.ElicitResult{Action: action, Content: map[string]any{"approved": true}}
 			out, err := cs.CallTool(ctx, params)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !out.IsError || requests.Load() != 0 {
-				t.Fatalf("STATE_DECLINED: %s executed, requests=%d", action, requests.Load())
+			if !out.IsError || !strings.Contains(resultText(out), "declined:") || requests.Load() != 0 {
+				t.Fatalf("STATE_DECLINED: %s executed or wrong refusal: %s requests=%d", action, resultText(out), requests.Load())
 			}
-			params.InputResponses["confirm"] = &mcp.ElicitResult{Action: "accept"}
+			params.InputResponses["confirm"] = &mcp.ElicitResult{Action: "accept", Content: map[string]any{"approved": true}}
 			out, err = cs.CallTool(ctx, params)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !out.IsError || requests.Load() != 0 {
-				t.Fatalf("STATE_DECLINED: %s token reused, requests=%d", action, requests.Load())
+			if !out.IsError || !strings.Contains(resultText(out), "confirmation_invalid:") || requests.Load() != 0 {
+				t.Fatalf("STATE_DECLINED: %s token reused or wrong refusal: %s requests=%d", action, resultText(out), requests.Load())
 			}
 		})
 	}
@@ -262,6 +262,10 @@ func TestForgedInputResponses(t *testing.T) {
 
 func connect(t *testing.T, p provider.Profile, c config.Config) (context.Context, *mcp.ClientSession) {
 	t.Helper()
+	return connectWithOptions(t, p, c, nil)
+}
+func connectWithOptions(t *testing.T, p provider.Profile, c config.Config, options *mcp.ClientOptions) (context.Context, *mcp.ClientSession) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
 	core, e := s3core.New(c, p)
@@ -279,7 +283,7 @@ func connect(t *testing.T, p provider.Profile, c config.Config) (context.Context
 		t.Fatal(e)
 	}
 	t.Cleanup(func() { _ = ss.Close() })
-	cs, e := mcp.NewClient(&mcp.Implementation{Name: "tests", Version: "test"}, nil).Connect(ctx, ct, nil)
+	cs, e := mcp.NewClient(&mcp.Implementation{Name: "tests", Version: "test"}, options).Connect(ctx, ct, nil)
 	if e != nil {
 		t.Fatal(e)
 	}

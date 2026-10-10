@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"io"
 	"net/http"
 	"net/url"
@@ -96,13 +98,35 @@ func (c *Client) execute(ctx context.Context, name string, a Args) (any, error) 
 		if e := c.ensureAbsent(ctx, a); e != nil {
 			return nil, e
 		}
+		var sourceETag *string
+		if name == "s3_move_object" {
+			head, e := c.SDK.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(a.SourceBucket), Key: aws.String(a.SourceKey)})
+			if e != nil {
+				return nil, e
+			}
+			if aws.ToString(head.ETag) == "" {
+				return nil, fmt.Errorf("source ETag is required for move")
+			}
+			sourceETag = head.ETag
+		}
 		source := url.PathEscape(a.SourceBucket + "/" + a.SourceKey)
-		out, e := c.SDK.CopyObject(ctx, &s3.CopyObjectInput{Bucket: b, Key: k, CopySource: aws.String(source), IfNoneMatch: c.condition(a)})
+		out, e := c.SDK.CopyObject(ctx, &s3.CopyObjectInput{Bucket: b, Key: k, CopySource: aws.String(source), CopySourceIfMatch: sourceETag, IfNoneMatch: c.condition(a)})
 		if e != nil {
 			return nil, e
 		}
 		if name == "s3_move_object" {
-			if _, e = c.SDK.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(a.SourceBucket), Key: aws.String(a.SourceKey)}); e != nil {
+			head, e := c.SDK.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(a.SourceBucket), Key: aws.String(a.SourceKey)})
+			if e != nil {
+				return nil, fmt.Errorf("copy kept; source recheck failed: %w", e)
+			}
+			if aws.ToString(head.ETag) != aws.ToString(sourceETag) {
+				return nil, fmt.Errorf("source changed during move; copy kept")
+			}
+			if _, e = c.SDK.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(a.SourceBucket), Key: aws.String(a.SourceKey), IfMatch: sourceETag}); e != nil {
+				var response *smithyhttp.ResponseError
+				if errors.As(e, &response) && response.HTTPStatusCode() == http.StatusPreconditionFailed {
+					return nil, fmt.Errorf("source changed during move; copy kept: %w", e)
+				}
 				return nil, fmt.Errorf("copy succeeded but source deletion failed: %w", e)
 			}
 		}

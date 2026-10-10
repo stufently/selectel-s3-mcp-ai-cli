@@ -38,6 +38,16 @@ func (f *Files) Read(path string) (*os.File, error) {
 	return f.root.Open(path)
 }
 func (f *Files) Write(path string, r io.Reader) error {
+	return f.write(path, r, false)
+}
+
+// Replace publishes a completed download over an existing destination. Callers
+// must obtain destructive approval before choosing this operation.
+func (f *Files) Replace(path string, r io.Reader) error {
+	return f.write(path, r, true)
+}
+
+func (f *Files) write(path string, r io.Reader, overwrite bool) error {
 	if e := filePath(path); e != nil {
 		return e
 	}
@@ -58,6 +68,11 @@ func (f *Files) Write(path string, r io.Reader) error {
 	if ce != nil {
 		return ce
 	}
-	return f.root.Rename(name, path)
+	if overwrite {
+		return f.root.Rename(name, path)
+	}
+	// Link atomically refuses any existing destination, including a raced file
+	// or symlink. The deferred Remove only removes our temporary name.
+	return f.root.Link(name, path)
 }
 func randomBytes() []byte { b := make([]byte, 16); _, _ = rand.Read(b); return b }

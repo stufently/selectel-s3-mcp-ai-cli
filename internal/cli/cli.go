@@ -203,7 +203,7 @@ func (a *app) addAuth(root *cobra.Command) {
 }
 func (a *app) addMCP(root *cobra.Command) {
 	mcpCmd := &cobra.Command{Use: "mcp", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		c, e := config.Load(a.p, a.override)
+		c, e := config.Load(a.p, a.mcpOverrides(cmd))
 		if e != nil {
 			return e
 		}
@@ -236,14 +236,12 @@ func (a *app) addMCP(root *cobra.Command) {
 		}
 		o.Binary = binary
 		o.Args = []string{"mcp"}
-		c, e := config.Load(a.p, a.override)
+		c, e := config.Load(a.p, a.mcpOverrides(cmd))
 		if e != nil {
 			return e
 		}
 		for _, level := range []string{"write", "delete", "admin"} {
-			if c.Allow[level] {
-				o.Args = append(o.Args, "--allow-"+level)
-			}
+			o.Args = append(o.Args, fmt.Sprintf("--allow-%s=%t", level, c.Allow[level]))
 		}
 		o.Env = map[string]string{a.p.EnvPrefix + "POOL": c.Pool, a.p.EnvPrefix + "ENDPOINT": c.Endpoint, a.p.EnvPrefix + "DESTRUCTIVE_POLICY": c.Policy}
 		if c.AllowInsecure {
@@ -275,6 +273,14 @@ func (a *app) addMCP(root *cobra.Command) {
 	f.BoolVar(&o.Force, "force", false, "Replace owned managed block")
 	mcpCmd.AddCommand(installCmd)
 	root.AddCommand(mcpCmd)
+}
+
+func (a *app) mcpOverrides(cmd *cobra.Command) config.Overrides {
+	o := a.override
+	o.AllowWriteChanged = cmd.Flags().Changed("allow-write")
+	o.AllowDeleteChanged = cmd.Flags().Changed("allow-delete")
+	o.AllowAdminChanged = cmd.Flags().Changed("allow-admin")
+	return o
 }
 func (a *app) addOperations(root *cobra.Command) {
 	lsArgs := s3core.Args{}

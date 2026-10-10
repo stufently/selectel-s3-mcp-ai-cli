@@ -48,7 +48,7 @@ func TestConditionalPut(t *testing.T) {
 func TestOverwriteBlocked(t *testing.T) {
 	var requests atomic.Int32
 	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) { requests.Add(1); w.WriteHeader(200) }, "block")
-	for _, name := range []string{"s3_put_object", "s3_copy_object", "s3_move_object", "s3_multipart_complete", "s3_upload_file"} {
+	for _, name := range []string{"s3_put_object", "s3_copy_object", "s3_move_object", "s3_multipart_complete", "s3_upload_file", "s3_download_file"} {
 		_, e := c.Execute(context.Background(), name, Args{Bucket: "bucket", Key: "target", SourceBucket: "source", SourceKey: "key", Overwrite: true, Confirm: true, UploadID: "id", Path: "file", Parts: []Part{{Number: 1, ETag: "etag"}}}, nil)
 		if e == nil {
 			t.Fatalf("OVERWRITE_GATE: %s accepted blocked overwrite", name)

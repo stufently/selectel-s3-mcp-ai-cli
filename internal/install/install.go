@@ -168,7 +168,9 @@ func MCP(p provider.Profile, o Options) (string, error) {
 		if e != nil {
 			return "", e
 		}
-		block := begin + "\n" + string(encoded) + end + "\n"
+		// Only dotted child headers are needed. Emitting the parent again would
+		// conflict with a user's explicit [mcp_servers] table.
+		block := begin + "\n" + strings.TrimPrefix(string(encoded), "[mcp_servers]\n") + end + "\n"
 		text := string(old)
 		start, finish := strings.Index(text, begin), strings.Index(text, end)
 		if present && !o.Force {

@@ -64,6 +64,9 @@ func newServer(p provider.Profile, c config.Config, core *s3core.Client, version
 				return &mcp.CallToolResult{IsError: true, StructuredContent: data, Content: []mcp.Content{&mcp.TextContent{Text: string(encoded)}}}, nil
 			}
 			var raw map[string]any
+			if e := validateArgumentKeys(req.Params.Arguments); e != nil {
+				return failure(fmt.Errorf("invalid tool arguments: %w", e))
+			}
 			if e := json.Unmarshal(req.Params.Arguments, &raw); e != nil {
 				return failure(fmt.Errorf("invalid tool arguments"))
 			}
@@ -88,7 +91,7 @@ func newServer(p provider.Profile, c config.Config, core *s3core.Client, version
 					return failure(e)
 				}
 				response, ok := req.Params.InputResponses["confirm"].(*mcp.ElicitResult)
-				if !supportsForm || !ok || response == nil || response.Action != "accept" {
+				if !supportsForm || !ok || response == nil || response.Action != "accept" || response.Content["approved"] != true {
 					return failure(fmt.Errorf("declined: human confirmation was not accepted"))
 				}
 				ask = func(context.Context, string) (bool, error) { return true, nil }

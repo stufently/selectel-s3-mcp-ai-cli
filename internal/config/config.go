@@ -12,9 +12,10 @@ import (
 )
 
 type Overrides struct {
-	Pool, Endpoint, Policy, FileRoot    string
-	AllowInsecure                       bool
-	AllowWrite, AllowDelete, AllowAdmin bool
+	Pool, Endpoint, Policy, FileRoot                         string
+	AllowInsecure                                            bool
+	AllowWrite, AllowDelete, AllowAdmin                      bool
+	AllowWriteChanged, AllowDeleteChanged, AllowAdminChanged bool
 }
 type Config struct {
 	Pool          string          `json:"pool"`
@@ -74,12 +75,8 @@ func readCredentials(p provider.Profile) (map[string]string, error) {
 	defer func() { _ = f.Close() }()
 	// Recheck the opened file so a replacement between Lstat and Open cannot
 	// make us read credentials with broader permissions.
-	info, e = f.Stat()
-	if e != nil {
+	if e = validateOpenedCredentials(f); e != nil {
 		return nil, e
-	}
-	if !info.Mode().IsRegular() || !privatePermissions(info.Mode()) {
-		return nil, fmt.Errorf("credentials must be a regular file with 0600 or stricter permissions")
 	}
 	scan := bufio.NewScanner(f)
 	for scan.Scan() {
@@ -94,6 +91,17 @@ func readCredentials(p provider.Profile) (map[string]string, error) {
 		values[key] = value
 	}
 	return values, scan.Err()
+}
+
+func validateOpenedCredentials(f *os.File) error {
+	info, e := f.Stat()
+	if e != nil {
+		return e
+	}
+	if !info.Mode().IsRegular() || !privatePermissions(info.Mode()) {
+		return fmt.Errorf("credentials must be a regular file with 0600 or stricter permissions")
+	}
+	return nil
 }
 func split(s string) []string {
 	var out []string
@@ -162,9 +170,10 @@ func Load(p provider.Profile, o Overrides) (Config, error) {
 		}
 		c.Allow[level] = true
 	}
+	changed := map[string]bool{"write": o.AllowWriteChanged, "delete": o.AllowDeleteChanged, "admin": o.AllowAdminChanged}
 	for level, enabled := range map[string]bool{"write": o.AllowWrite, "delete": o.AllowDelete, "admin": o.AllowAdmin} {
-		if enabled {
-			c.Allow[level] = true
+		if enabled || changed[level] {
+			c.Allow[level] = enabled
 		}
 	}
 	if v := get("DESTRUCTIVE_POLICY"); v != "" {

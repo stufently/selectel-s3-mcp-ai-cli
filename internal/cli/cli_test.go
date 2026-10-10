@@ -74,7 +74,7 @@ func TestInstallPreservesResolvedLevels(t *testing.T) {
 		}
 		server := tree["mcpServers"].(map[string]any)[p.Binary].(map[string]any)
 		args := server["args"].([]any)
-		if len(args) != 3 || args[1] != "--allow-write" || args[2] != "--allow-delete" {
+		if len(args) != 4 || args[1] != "--allow-write=true" || args[2] != "--allow-delete=true" || args[3] != "--allow-admin=false" {
 			t.Fatalf("resolved env levels not installed: %v", args)
 		}
 		if strings.Contains(out.String(), "secret-test") {

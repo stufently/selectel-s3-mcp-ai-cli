@@ -3,36 +3,88 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"regexp"
 	"strings"
+	"sync"
+	"syscall"
 )
 
 type mutation struct{ id, file, old, new, pkg, test, assert string }
 
-func run(m mutation) bool {
+// Mutation writes and signal restoration share a lock, so restoration cannot
+// race with a delayed write of the mutant.
+type restoration struct {
+	mu       sync.Mutex
+	file     string
+	data     []byte
+	mode     os.FileMode
+	hash     [32]byte
+	stopping bool
+}
+
+func (r *restoration) apply(file string, original, changed []byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.stopping {
+		return context.Canceled
+	}
+	info, err := os.Stat(file)
+	if err != nil {
+		return err
+	}
+	r.file, r.data, r.mode, r.hash = file, original, info.Mode().Perm(), sha256.Sum256(original)
+	return os.WriteFile(file, changed, r.mode)
+}
+
+func (r *restoration) restore() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.restoreLocked()
+}
+
+func (r *restoration) stop() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stopping = true
+	return r.restoreLocked()
+}
+
+func (r *restoration) restoreLocked() error {
+	if r.file == "" {
+		return nil
+	}
+	if err := os.WriteFile(r.file, r.data, r.mode); err != nil {
+		return err
+	}
+	actual, err := os.ReadFile(r.file)
+	if err != nil {
+		return err
+	}
+	if sha256.Sum256(actual) != r.hash {
+		return fmt.Errorf("restoration hash mismatch: %s", r.file)
+	}
+	r.file, r.data = "", nil
+	return nil
+}
+
+func run(ctx context.Context, m mutation, rollback *restoration, selftest bool) bool {
 	original, e := os.ReadFile(m.file)
 	if e != nil {
 		panic(e)
 	}
-	before := sha256.Sum256(original)
-	restored := false
 	defer func() {
-		if !restored {
-			if e := os.WriteFile(m.file, original, 0600); e != nil {
-				panic(e)
-			}
-		}
-		actual, e := os.ReadFile(m.file)
-		if e != nil || sha256.Sum256(actual) != before {
-			panic("restoration hash mismatch: " + m.id)
+		if e := rollback.restore(); e != nil {
+			panic(e)
 		}
 	}()
 	test := func() ([]byte, error) {
-		return exec.Command("go", "test", "-count=1", m.pkg, "-run", "^"+m.test+"$").CombinedOutput()
+		return exec.CommandContext(ctx, "go", "test", "-count=1", m.pkg, "-run", "^"+m.test+"$").CombinedOutput()
 	}
 	clean, e := test()
 	if e != nil {
@@ -44,14 +96,21 @@ func run(m mutation) bool {
 		return false
 	}
 	changed := strings.Replace(string(original), m.old, m.new, 1)
-	if e = os.WriteFile(m.file, []byte(changed), 0600); e != nil {
+	if e = rollback.apply(m.file, original, []byte(changed)); e != nil {
 		panic(e)
 	}
+	if selftest {
+		fmt.Printf("%s: applied; selftest sending SIGTERM\n", m.id)
+		if e := syscall.Kill(os.Getpid(), syscall.SIGTERM); e != nil {
+			panic(e)
+		}
+		// The signal handler restores the snapshot and exits nonzero.
+		select {}
+	}
 	result, e := test()
-	if e2 := os.WriteFile(m.file, original, 0600); e2 != nil {
+	if e2 := rollback.restore(); e2 != nil {
 		panic(e2)
 	}
-	restored = true
 	linePattern := regexp.MustCompile(`(?m)^\s+[a-zA-Z0-9_]+_test\.go:[0-9]+:.*`)
 	for _, line := range linePattern.FindAllString(string(result), -1) {
 		if e != nil && strings.Contains(line, m.assert) && strings.Contains(string(result), "--- FAIL: "+m.test) {
@@ -63,6 +122,25 @@ func run(m mutation) bool {
 	return false
 }
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rollback := new(restoration)
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	go func() {
+		select {
+		case sig := <-signals:
+			if err := rollback.stop(); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: restoration failed: %v\n", sig, err)
+			} else {
+				fmt.Fprintf(os.Stderr, "%s: original restored\n", sig)
+			}
+			cancel()
+			os.Exit(1)
+		case <-ctx.Done():
+		}
+	}()
 	mutations := []mutation{
 		{"M1", "internal/mcpserver/registry.go", "if !c.Allow[level] {", "if false && !c.Allow[level] {", "./internal/mcpserver", "TestRegistration", "REGISTRATION:"},
 		{"M2", "internal/safety/gate.go", "if confirm {", "if true {", "./internal/safety", "TestGateMatrix", "GATE: policy=confirm"},
@@ -82,10 +160,47 @@ func main() {
 		{"M16", "internal/safety/confirmation.go", "if c.now().Unix() >= state.ExpiresAt {", "if false && c.now().Unix() >= state.ExpiresAt {", "./internal/mcpserver", "TestConfirmationExpired", "STATE_EXPIRED:"},
 		{"M17", "internal/safety/confirmation.go", "state.Tool != tool", "false && state.Tool != tool", "./internal/mcpserver", "TestConfirmationToolChanged", "STATE_TOOL:"},
 		{"M18", "internal/mcpserver/server.go", "response.Action != \"accept\"", "false && response.Action != \"accept\"", "./internal/mcpserver", "TestConfirmationDeclinedCannotBeReused", "STATE_DECLINED:"},
+		{"G01", "internal/safety/gate.go", "if e != nil {\n\t\t\t\treturn fmt.Errorf(\"confirmation failed: %w\", e)\n\t\t\t}", "if e != nil {\n\t\t\t\treturn nil\n\t\t\t}", "./internal/safety", "TestGateElicitationError", "GATE_ERROR:"},
+		{"G02", "internal/safety/gate.go", "default:\n\t\treturn fmt.Errorf(\"invalid gate policy\")", "default:\n\t\treturn nil", "./internal/safety", "TestGateInvalidPolicy", "GATE_POLICY:"},
+		{"C01", "internal/safety/confirmation.go", "if len(token) > 4096 {", "if len(token) > 1048576 {", "./internal/safety", "TestConfirmationTokenLimit", "TOKEN_LIMIT:"},
+		{"C02", "internal/safety/confirmation.go", "ExpiresAt: now.Add(5 * time.Minute).Unix()", "ExpiresAt: now.Add(4 * time.Minute).Unix()", "./internal/safety", "TestConfirmationFiveMinuteWindow", "FIVE_MINUTES:"},
+		{"C03", "internal/safety/confirmation.go", "decoder.UseNumber()", "if false { decoder.UseNumber() }", "./internal/safety", "TestConfirmationIntegerPrecision", "INTEGER_DIGEST:"},
+		{"C04", "internal/safety/confirmation.go", "if !hmac.Equal(signature, mac.Sum(nil)) {", "if len(signature) == 0 || signature[0] != mac.Sum(nil)[0] {", "./internal/mcpserver", "TestConfirmationSignature", "STATE_SIGNATURE:"},
+		{"SCP02", "internal/safety/scope.go", "if b == \"\" {\n\t\treturn fmt.Errorf(\"bucket is required\")\n\t}", "if false && b == \"\" {\n\t\treturn fmt.Errorf(\"bucket is required\")\n\t}", "./internal/safety", "TestScopeRequiresBucket", "EMPTY_BUCKET:"},
+		{"F01", "internal/safety/files.go", "os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600", "os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644", "./internal/safety", "TestDownloadFilePrivatePermissions", "DOWNLOAD_MODE:"},
+		{"F02", "internal/safety/files.go", "if !filepath.IsLocal(path) || strings.Contains(path, \"\\\\\") {", "if !filepath.IsLocal(path) {", "./internal/safety", "TestFilePathValidationReasons", "FILE_PATH:"},
+		{"F03", "internal/safety/files.go", "if !filepath.IsLocal(path) || strings.Contains(path, \"\\\\\") {", "if strings.Contains(path, \"\\\\\") {", "./internal/safety", "TestFilePathValidationReasons", "FILE_PATH:"},
+		{"RD01", "internal/safety/redact.go", "(?i)([?&]X-Amz-(?:Signature|Credential|Security-Token)=)", "([?&]X-Amz-(?:Signature|Credential|Security-Token)=)", "./internal/safety", "TestRedactionLowercaseAndEmptySecret", "REDACT_LOWER:"},
+		{"RD02", "internal/safety/redact.go", "if secret != \"\" {", "if true {", "./internal/safety", "TestRedactionLowercaseAndEmptySecret", "REDACT_EMPTY:"},
+		{"CFG02", "internal/config/config.go", "if o.Policy != \"\" {\n\t\tc.Policy = o.Policy\n\t}", "if false && o.Policy != \"\" {\n\t\tc.Policy = o.Policy\n\t}", "./internal/config", "TestOverridePolicyAndFileRoot", "POLICY_OVERRIDE:"},
+		{"CFG03", "internal/config/config.go", "if !info.Mode().IsRegular() || !privatePermissions(info.Mode()) {", "if !info.Mode().IsRegular() {", "./internal/config", "TestOpenedCredentialPermissions", "OPENED_PERMISSIONS:"},
+		{"CFG05", "internal/config/config.go", "if o.FileRoot != \"\" {\n\t\tc.FileRoot = o.FileRoot\n\t}", "if false && o.FileRoot != \"\" {\n\t\tc.FileRoot = o.FileRoot\n\t}", "./internal/config", "TestOverridePolicyAndFileRoot", "ROOT_OVERRIDE:"},
+		{"CFG06", "internal/config/config.go", "if enabled || changed[level] {", "if false && (enabled || changed[level]) {", "./internal/config", "TestAllowFlagsGrantLevels", "ALLOW_GRANT:"},
+		{"SRV02", "internal/mcpserver/server.go", "ip.Capabilities.Elicitation.Form != nil || ip.Capabilities.Elicitation.URL == nil", "ip.Capabilities.Elicitation.Form != nil && ip.Capabilities.Elicitation.URL == nil", "./internal/mcpserver", "TestLegacyFormElicitation", "LEGACY_FORM:"},
+		{"SRV03", "internal/mcpserver/server.go", "response.Content[\"approved\"] != true", "false && response.Content[\"approved\"] != true", "./internal/mcpserver", "TestConfirmFormRequiresApprovedTrue", "APPROVED_TRUE:"},
+		{"SRV04", "internal/mcpserver/server.go", "if len(data) > int(s3core.InlineLimit) {", "if len(data) > int(s3core.InlineLimit)*8 {", "./internal/mcpserver", "TestLargeResultTextSummary", "RESULT_SUMMARY:"},
+		{"REG01", "internal/mcpserver/registry.go", "return !spec.FileRoot || c.FileRoot != \"\"", "return !spec.FileRoot", "./internal/mcpserver", "TestFileToolsRegistration", "FILE_TOOLS:"},
+		{"REG03", "internal/mcpserver/registry.go", "AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}}", "AdditionalProperties: &jsonschema.Schema{}", "./internal/mcpserver", "TestToolRejectsAdditionalProperties", "EXTRA_PROPERTY:"},
+		{"CL01", "internal/s3core/client.go", "\"s3_multipart_abort\", \"s3_delete_bucket\", \"s3_put_bucket_policy\"", "\"s3_multipart_abort\", \"s3_put_bucket_policy\"", "./internal/s3core", "TestAdditionalDestructiveGates", "ADDITIONAL_GATE:"},
+		{"CL02", "internal/s3core/client.go", "return a.Status == \"Suspended\"", "return false", "./internal/s3core", "TestAdditionalDestructiveGates", "ADDITIONAL_GATE:"},
+		{"CL03", "internal/s3core/client.go", "if a.Overwrite {\n\t\treturn nil\n\t}", "if false && a.Overwrite {\n\t\treturn nil\n\t}", "./internal/s3core", "TestApprovedOverwriteSkipsAbsenceCheck", "OVERWRITE_ALLOWED:"},
+		{"CL05", "internal/s3core/client.go", "if n == 0 {\n\t\treturn 1000, nil\n\t}", "if n == 0 {\n\t\treturn 100, nil\n\t}", "./internal/s3core", "TestListPageBounds", "PAGE_SIZE:"},
+		{"CL06", "internal/s3core/client.go", "if n < 1 || n > 1000 {", "if n < 1 || n > 10000 {", "./internal/s3core", "TestListPageBounds", "PAGE_BOUND:"},
+		{"CL07", "internal/s3core/client.go", "if n == 0 {\n\t\tn = 3600\n\t}", "if n == 0 {\n\t\tn = 60\n\t}", "./internal/s3core", "TestPresignExpiryBounds", "PRESIGN_EXPIRY:"},
+		{"CL08", "internal/s3core/client.go", "const InlineLimit int64 = 262144", "const InlineLimit int64 = 131072", "./internal/s3core", "TestInlinePutLiteralBoundary", "INLINE_BOUNDARY:"},
+		{"CL09", "internal/s3core/client.go", "if key == p {\n\t\t\t\t\treturn fmt.Errorf(\"scope_denied: listing requires prefix %s/\", p)\n\t\t\t\t}", "if false && key == p {\n\t\t\t\t\treturn fmt.Errorf(\"scope_denied: listing requires prefix %s/\", p)\n\t\t\t\t}", "./internal/s3core", "TestScopeAndSourceGuardReasons", "GUARD_REASON:"},
+		{"CL10", "internal/s3core/client.go", "func wholeBucket(name string) bool {\n\treturn name == \"s3_get_bucket_config\" || name == \"s3_create_bucket\" || name == \"s3_delete_bucket\" || strings.HasPrefix(name, \"s3_put_bucket_\") || name == \"s3_delete_bucket_policy\" || name == \"s3_put_object_lock_configuration\"\n}", "func wholeBucket(name string) bool {\n\treturn strings.HasPrefix(name, \"not-a-bucket-tool\")\n}", "./internal/s3core", "TestScopeAndSourceGuardReasons", "GUARD_REASON:"},
+		{"CL11", "internal/s3core/client.go", "if a.Bucket == a.SourceBucket && a.Key == a.SourceKey {\n\t\t\treturn fmt.Errorf(\"source and destination must differ\")\n\t\t}", "if false && a.Bucket == a.SourceBucket && a.Key == a.SourceKey {\n\t\t\treturn fmt.Errorf(\"source and destination must differ\")\n\t\t}", "./internal/s3core", "TestScopeAndSourceGuardReasons", "GUARD_REASON:"},
+		{"CL12", "internal/s3core/client.go", "if len(a.Objects) == 0 || len(a.Objects) > 1000 {", "if len(a.Objects) == 0 || len(a.Objects) > 100000 {", "./internal/s3core", "TestDeleteObjectsBoundary", "DELETE_BOUNDARY:"},
+		{"CL13", "internal/s3core/client.go", "if !a.Overwrite && c.Profile.Features[\"conditional_writes\"] {", "if !a.Overwrite {", "./internal/s3core", "TestConditionalWritesDisabled", "CONDITIONAL_DISABLED:"},
+		{"INS01", "internal/install/install.go", "quote := func(v string) string { return \"'\" + strings.ReplaceAll(v, \"'\", \"'\\\\''\") + \"'\" }", "quote := func(v string) string { return v }", "./internal/install", "TestUserCommandQuotesArguments", "INSTALL_QUOTE:"},
+		{"INS02", "internal/install/install.go", "strings.Count(text, begin) != 1 || strings.Count(text, end) != 1", "false", "./internal/install", "TestCodexDuplicateManagedMarkers", "MANAGED_MARKERS:"},
+		{"CLI01", "internal/cli/cli.go", "\t\targs.Confirm = true\n\t}\n\tvar out any\n", "\t}\n\tvar out any\n", "./internal/cli", "TestYesApprovesNonTTYDestructiveOperations", "CLI_YES:"},
+		{"CLI02", "internal/cli/cli.go", "if a.yes {\n\t\treturn nil\n\t}", "if a.yes && !strings.Contains(effect, \"s3_delete\") && !strings.Contains(effect, \"s3_move\") {\n\t\treturn nil\n\t}", "./internal/cli", "TestYesApprovesNonTTYDestructiveOperations", "CLI_YES:"},
 	}
 	ok := true
-	for _, m := range mutations {
-		if !run(m) {
+	for i, m := range mutations {
+		if !run(ctx, m, rollback, i == 0 && os.Getenv("MUTATION_GATE_SELFTEST_SIGNAL") == "1") {
 			ok = false
 		}
 	}

@@ -72,7 +72,13 @@ type Client struct {
 }
 
 func New(c config.Config, p provider.Profile) (*Client, error) {
-	cfg, e := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithRegion(c.Pool), awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(c.AccessKey, c.SecretKey, "")), awsconfig.WithRetryer(func() aws.Retryer { return retry.NewAdaptiveMode() }))
+	cfg, e := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithRegion(c.Pool), awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(c.AccessKey, c.SecretKey, "")), awsconfig.WithRetryer(func() aws.Retryer {
+		return retry.NewAdaptiveMode(func(o *retry.AdaptiveModeOptions) {
+			o.StandardOptions = append(o.StandardOptions, func(s *retry.StandardOptions) {
+				s.Retryables = append(s.Retryables, retry.RetryableHTTPStatusCode{Codes: map[int]struct{}{http.StatusTooManyRequests: {}}})
+			})
+		})
+	}))
 	if e != nil {
 		return nil, e
 	}
@@ -97,7 +103,7 @@ func Gated(name string, a Args) bool {
 		return true
 	case "s3_put_bucket_versioning":
 		return a.Status == "Suspended"
-	case "s3_put_object", "s3_copy_object", "s3_multipart_complete", "s3_upload_file":
+	case "s3_put_object", "s3_copy_object", "s3_multipart_complete", "s3_upload_file", "s3_download_file":
 		return a.Overwrite
 	}
 	return false
@@ -241,7 +247,11 @@ func (c *Client) downloadFile(ctx context.Context, a Args) (any, error) {
 		return nil, e
 	}
 	defer func() { _ = out.Body.Close() }()
-	e = files.Write(a.Path, out.Body)
+	if a.Overwrite {
+		e = files.Replace(a.Path, out.Body)
+	} else {
+		e = files.Write(a.Path, out.Body)
+	}
 	return map[string]any{"path": a.Path}, e
 }
 func (c *Client) uploadFile(ctx context.Context, a Args) (any, error) {

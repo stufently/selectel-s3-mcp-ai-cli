@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"github.com/spf13/cobra"
 	"github.com/stufently/selectel-s3-mcp-ai-cli/internal/s3core"
@@ -140,7 +141,13 @@ func (a *app) copyRecursive(cmd *cobra.Command, c *s3core.Client, source, destin
 		if !info.IsDir() {
 			return fmt.Errorf("recursive source must be a directory")
 		}
-		return filepath.WalkDir(source, func(path string, entry fs.DirEntry, e error) error {
+		root, e := os.OpenRoot(source)
+		if e != nil {
+			return e
+		}
+		defer func() { _ = root.Close() }()
+		var paths []string
+		e = fs.WalkDir(root.FS(), ".", func(path string, entry fs.DirEntry, e error) error {
 			if e != nil {
 				return e
 			}
@@ -150,12 +157,17 @@ func (a *app) copyRecursive(cmd *cobra.Command, c *s3core.Client, source, destin
 			if entry.Type()&os.ModeSymlink != 0 {
 				return fmt.Errorf("recursive copy refuses symlinks")
 			}
-			relative, e := filepath.Rel(source, path)
-			if e != nil {
-				return e
-			}
-			return a.copyOne(cmd, c, path, strings.TrimSuffix(destination, "/")+"/"+filepath.ToSlash(relative), args)
+			paths = append(paths, path)
+			return nil
 		})
+		if e != nil {
+			return e
+		}
+		args.Bucket, args.Key, e = remote(destination, a.p.URIScheme, false)
+		if e != nil {
+			return e
+		}
+		return uploadTree(cmd.Context(), c, root, paths, args)
 	}
 	bucket, prefix, e := remote(source, a.p.URIScheme, false)
 	if e != nil {
@@ -219,4 +231,34 @@ func (a *app) copyRecursive(cmd *cobra.Command, c *s3core.Client, source, destin
 		}
 		token = next
 	}
+}
+
+func uploadTree(ctx context.Context, c *s3core.Client, root *os.Root, paths []string, destination s3core.Args) error {
+	for _, relative := range paths {
+		if e := uploadTreeFile(ctx, c, root, relative, destination); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+func uploadTreeFile(ctx context.Context, c *s3core.Client, root *os.Root, relative string, args s3core.Args) error {
+	in, e := root.Open(relative)
+	if e != nil {
+		return e
+	}
+	defer func() { _ = in.Close() }()
+	info, e := in.Stat()
+	if e != nil {
+		return e
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("source must be a regular file")
+	}
+	if args.Key != "" {
+		args.Key = strings.TrimSuffix(args.Key, "/") + "/"
+	}
+	args.Key += filepath.ToSlash(relative)
+	_, e = c.UploadReader(ctx, args, in, nil)
+	return e
 }

@@ -105,6 +105,8 @@ SELECTEL_S3_ALLOWED_BUCKETS and SELECTEL_S3_ALLOWED_PREFIXES take comma-separate
 
 FILE_ROOT MCP tools use os.Root and relative paths only; absolute paths, '..' and escaping symlinks fail. Every tool call emits one JSON stderr audit record; SELECTEL_S3_AUDIT_FILE additionally appends to a 0600 file. Secrets and X-Amz-Signature/Credential/Security-Token are redacted from logs/errors. Full signed URLs are operation results only. Keep underlying S3 key rights minimal too.
 
+s3_download_file publishes downloads without replacing existing local files by default, including files created during the download. To replace a file, pass overwrite:true; the destructive policy applies, using form confirmation or confirm:true after human approval.
+
 ## Selectel pools and storage classes
 
 ru-1/ru-3: Saint Petersburg; ru-6 (Multi-AZ), ru-7, isolated gis-1: Moscow; uz-2: Uzbekistan. SigV4 region equals pool; addressing defaults to path-style. [Endpoints and compatibility](docs/compat.md).
