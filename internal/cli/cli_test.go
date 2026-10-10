@@ -5,10 +5,51 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/stufently/selectel-s3-mcp-ai-cli/internal/provider"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
+
+func TestCopyLocalSourceEscape(t *testing.T) {
+	p, err := provider.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceDir, outside := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "private"), []byte("private"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(sourceDir, "link")
+	if err := os.Symlink(filepath.Join(outside, "private"), source); err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int32
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.Method == "HEAD" {
+			w.WriteHeader(404)
+		} else {
+			w.WriteHeader(200)
+		}
+	}))
+	defer endpoint.Close()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(p.EnvPrefix+"ACCESS_KEY_ID", "fake")
+	t.Setenv(p.EnvPrefix+"SECRET_ACCESS_KEY", "fake-secret")
+	t.Setenv(p.EnvPrefix+"ENDPOINT", endpoint.URL)
+	t.Setenv(p.EnvPrefix+"ALLOW_INSECURE", "1")
+	cmd := New(p, "test", "abc")
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"cp", source, "s3://bucket/key"})
+	if err := cmd.Execute(); err == nil || requests.Load() != 0 {
+		t.Fatalf("CLI_SOURCE_ROOT: escaped source accepted or contacted S3, requests=%d err=%v", requests.Load(), err)
+	}
+}
 
 func TestInstallPreservesResolvedLevels(t *testing.T) {
 	p, e := provider.Load()

@@ -91,6 +91,16 @@ func atomicWrite(path string, data []byte) error {
 	}
 	return os.Rename(temp.Name(), path)
 }
+
+func readLocalFile(path string) ([]byte, error) {
+	root, e := os.OpenRoot(filepath.Dir(path))
+	if e != nil {
+		return nil, e
+	}
+	defer func() { _ = root.Close() }()
+	return root.ReadFile(filepath.Base(path))
+}
+
 func MCP(p provider.Profile, o Options) (string, error) {
 	if o.Scope != "" && o.Scope != "user" && o.Scope != "project" {
 		return "", fmt.Errorf("scope must be user or project")
@@ -131,7 +141,7 @@ func MCP(p provider.Profile, o Options) (string, error) {
 	if e != nil {
 		return "", e
 	}
-	old, e := os.ReadFile(path) //nolint:gosec // ConfigPath derives the explicitly selected client configuration.
+	old, e := readLocalFile(path)
 	exists := e == nil
 	if e != nil && !os.IsNotExist(e) {
 		return "", e
@@ -244,7 +254,7 @@ func Skill(target string) error {
 			return e
 		}
 		out := filepath.Join(target, filepath.FromSlash(relative))
-		current, e := os.ReadFile(out) //nolint:gosec // Explicit skill target plus paths from the trusted embedded filesystem.
+		current, e := readLocalFile(out)
 		if e == nil && string(current) == string(data) {
 			return nil
 		}

@@ -38,6 +38,11 @@ func CredentialsPath(p provider.Profile) (string, error) {
 	}
 	return filepath.Join(home, ".config", p.Binary, "credentials"), nil
 }
+
+func privatePermissions(mode os.FileMode) bool {
+	return mode.Perm() & ^os.FileMode(0600) == 0
+}
+
 func readCredentials(p provider.Profile) (map[string]string, error) {
 	path, e := CredentialsPath(p)
 	if e != nil {
@@ -54,14 +59,28 @@ func readCredentials(p provider.Profile) (map[string]string, error) {
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("credentials must be a regular file")
 	}
-	if info.Mode().Perm() & ^os.FileMode(0600) != 0 {
+	if !privatePermissions(info.Mode()) {
 		return nil, fmt.Errorf("credentials permissions must be 0600 or stricter: %s", path)
 	}
-	f, e := os.Open(path) //nolint:gosec // Derived private credential path; regular file and permissions were checked above.
+	root, e := os.OpenRoot(filepath.Dir(path))
+	if e != nil {
+		return nil, e
+	}
+	defer func() { _ = root.Close() }()
+	f, e := root.Open(filepath.Base(path))
 	if e != nil {
 		return nil, e
 	}
 	defer func() { _ = f.Close() }()
+	// Recheck the opened file so a replacement between Lstat and Open cannot
+	// make us read credentials with broader permissions.
+	info, e = f.Stat()
+	if e != nil {
+		return nil, e
+	}
+	if !info.Mode().IsRegular() || !privatePermissions(info.Mode()) {
+		return nil, fmt.Errorf("credentials must be a regular file with 0600 or stricter permissions")
+	}
 	scan := bufio.NewScanner(f)
 	for scan.Scan() {
 		line := strings.TrimSpace(scan.Text())

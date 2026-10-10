@@ -81,7 +81,13 @@ func (a *app) copyOne(cmd *cobra.Command, c *s3core.Client, source, destination 
 		if e != nil {
 			return e
 		}
-		in, e := os.Open(source)
+		// Confine the explicitly selected source to its directory while opening it.
+		root, e := os.OpenRoot(filepath.Dir(source))
+		if e != nil {
+			return e
+		}
+		defer func() { _ = root.Close() }()
+		in, e := root.Open(filepath.Base(source))
 		if e != nil {
 			return e
 		}

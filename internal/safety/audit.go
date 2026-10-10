@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -24,10 +25,23 @@ func NewAudit(stderr io.Writer, path string, secrets ...string) (*Audit, error) 
 		} else if !os.IsNotExist(e) {
 			return nil, e
 		}
-		var e error
-		file, e = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600) //nolint:gosec // Audit destination is an explicit operator setting; existing type and permissions checked above.
+		root, e := os.OpenRoot(filepath.Dir(path))
 		if e != nil {
 			return nil, e
+		}
+		file, e = root.OpenFile(filepath.Base(path), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+		ce := root.Close()
+		if e != nil {
+			return nil, e
+		}
+		if ce != nil {
+			_ = file.Close()
+			return nil, ce
+		}
+		info, e := file.Stat()
+		if e != nil || !info.Mode().IsRegular() || info.Mode().Perm() & ^os.FileMode(0600) != 0 {
+			_ = file.Close()
+			return nil, fmt.Errorf("audit file must be regular with 0600 permissions")
 		}
 		stderr = io.MultiWriter(stderr, file)
 	}

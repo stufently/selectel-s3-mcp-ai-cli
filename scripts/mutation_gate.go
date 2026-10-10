@@ -73,7 +73,7 @@ func main() {
 		{"M7", "internal/safety/redact.go", "Signature|Credential|Security-Token", "Ignored|Credential|Security-Token", "./internal/safety", "TestRedaction", "REDACT:"},
 		{"M8", "internal/mcpserver/registry.go", "spec.Capability != \"\" && !p.Features[spec.Capability]", "false && spec.Capability != \"\" && !p.Features[spec.Capability]", "./internal/mcpserver", "TestCapabilities", "CAPABILITY:"},
 		{"M9", "internal/s3core/objects.go", "Body: bytes.NewReader(data), ContentType: optional(a.ContentType), IfNoneMatch: c.condition(a)", "Body: bytes.NewReader(data), ContentType: optional(a.ContentType), IfNoneMatch: nil", "./internal/s3core", "TestConditionalPut", "CONDITIONAL:"},
-		{"M10", "internal/config/config.go", "info.Mode().Perm() & ^os.FileMode(0600) != 0", "false", "./internal/config", "TestCredentialPermissions", "PERMISSIONS:"},
+		{"M10", "internal/config/config.go", "return mode.Perm() & ^os.FileMode(0600) == 0", "return true", "./internal/config", "TestCredentialPermissions", "PERMISSIONS:"},
 		{"M11", "internal/s3core/multipart.go", "if e := c.ensureAbsent(ctx, a); e != nil {\n\t\t\treturn nil, e\n\t\t}", "// mutation: target check removed", "./internal/s3core", "TestMultipartExistingTarget", "MULTIPART_EXISTS:"},
 		{"M12", "internal/s3core/client.go", "return a.Overwrite", "return false", "./internal/s3core", "TestOverwriteBlocked", "OVERWRITE_GATE:"},
 		{"M13", "internal/safety/confirmation.go", "if !hmac.Equal(signature, mac.Sum(nil)) {", "if false && !hmac.Equal(signature, mac.Sum(nil)) {", "./internal/mcpserver", "TestConfirmationSignature", "STATE_SIGNATURE:"},
