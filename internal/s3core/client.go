@@ -31,6 +31,7 @@ type ObjectID struct {
 	VersionID string `json:"version_id,omitempty"`
 }
 type Args struct {
+	Offset            int                            `json:"result_offset,omitempty"`
 	Bucket            string                         `json:"bucket,omitempty"`
 	Key               string                         `json:"key,omitempty"`
 	Prefix            string                         `json:"prefix,omitempty"`
