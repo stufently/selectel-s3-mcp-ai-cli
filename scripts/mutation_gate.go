@@ -73,7 +73,7 @@ func (r *restoration) restoreLocked() error {
 	return nil
 }
 
-func run(ctx context.Context, m mutation, rollback *restoration, selftest bool) bool {
+func run(ctx context.Context, m mutation, rollback *restoration, selftest string, stopped <-chan struct{}) bool {
 	original, e := os.ReadFile(m.file)
 	if e != nil {
 		panic(e)
@@ -96,12 +96,32 @@ func run(ctx context.Context, m mutation, rollback *restoration, selftest bool) 
 		return false
 	}
 	changed := strings.Replace(string(original), m.old, m.new, 1)
+	if selftest == "EARLY" {
+		fmt.Printf("%s: selftest sending SIGTERM before apply\n", m.id)
+		if e := syscall.Kill(os.Getpid(), syscall.SIGTERM); e != nil {
+			panic(e)
+		}
+		// stop() must finish under the shared mutex before apply() is called.
+		<-stopped
+	}
 	if e = rollback.apply(m.file, original, []byte(changed)); e != nil {
+		if selftest == "EARLY" && e == context.Canceled {
+			fmt.Println("apply refused: stopping")
+			return false
+		}
 		panic(e)
 	}
-	if selftest {
-		fmt.Printf("%s: applied; selftest sending SIGTERM\n", m.id)
-		if e := syscall.Kill(os.Getpid(), syscall.SIGTERM); e != nil {
+	if selftest == "EARLY" {
+		fmt.Println("early signal failed to prevent mutation")
+		return false
+	}
+	if selftest == "TERM" || selftest == "INT" {
+		sig := syscall.SIGTERM
+		if selftest == "INT" {
+			sig = syscall.SIGINT
+		}
+		fmt.Printf("%s: applied; selftest sending SIG%s\n", m.id, selftest)
+		if e := syscall.Kill(os.Getpid(), sig); e != nil {
 			panic(e)
 		}
 		// The signal handler restores the snapshot and exits nonzero.
@@ -125,6 +145,11 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	rollback := new(restoration)
+	selftest := os.Getenv("MUTATION_GATE_SELFTEST_SIGNAL")
+	if selftest == "1" {
+		selftest = "TERM"
+	}
+	stopped := make(chan struct{})
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(signals)
@@ -137,12 +162,32 @@ func main() {
 				fmt.Fprintf(os.Stderr, "%s: original restored\n", sig)
 			}
 			cancel()
+			close(stopped)
+			if selftest == "EARLY" {
+				// Let run() prove that apply() refuses the delayed write.
+				return
+			}
 			os.Exit(1)
 		case <-ctx.Done():
 		}
 	}()
 	mutations := []mutation{
 		{"M1", "internal/mcpserver/registry.go", "if !c.Allow[level] {", "if false && !c.Allow[level] {", "./internal/mcpserver", "TestRegistration", "REGISTRATION:"},
+		{"H04", "internal/mcpserver/arguments.go", "\t\t\tfor _, previous := range keys {\n\t\t\t\tif strings.EqualFold(previous, key) {\n\t\t\t\t\treturn fmt.Errorf(\"case-colliding keys %q and %q\", previous, key)\n\t\t\t\t}\n\t\t\t}", "\t\t\tif len(keys) > 0 && strings.EqualFold(keys[len(keys)-1], key) {\n\t\t\t\treturn fmt.Errorf(\"case-colliding keys %q and %q\", keys[len(keys)-1], key)\n\t\t\t}", "./internal/mcpserver", "TestArgumentsRejectNonAdjacentCollisions", "NONADJACENT_KEYS:"},
+		{"H06", "internal/mcpserver/arguments.go", "if _, err := d.Token(); err != io.EOF {", "if _, err := d.Token(); false && err != io.EOF {", "./internal/mcpserver", "TestArgumentsRejectTrailingJSONValue", "ONE_JSON_VALUE:"},
+		{"H07", "internal/mcpserver/server.go", "\t\t\tif e := validateArgumentKeys(req.Params.Arguments); e != nil {\n\t\t\t\treturn failure(fmt.Errorf(\"invalid tool arguments: %w\", e))\n\t\t\t}", "\t\t\tif spec.Name == \"s3_delete_object\" || spec.Name == \"s3_delete_objects\" {\n\t\t\t\tif e := validateArgumentKeys(req.Params.Arguments); e != nil {\n\t\t\t\t\treturn failure(fmt.Errorf(\"invalid tool arguments: %w\", e))\n\t\t\t\t}\n\t\t\t}", "./internal/mcpserver", "TestArgumentsValidateOtherTools", "ALL_TOOL_KEYS:"},
+		{"H10", "internal/config/config.go", "{\"write\": o.AllowWriteChanged, \"delete\": o.AllowDeleteChanged, \"admin\": o.AllowAdminChanged}", "{\"write\": false, \"delete\": o.AllowDeleteChanged, \"admin\": o.AllowAdminChanged}", "./internal/config", "TestExplicitWriteAndAdminDenials", "ALLOW_DENIAL:"},
+		{"H11", "internal/config/config.go", "{\"write\": o.AllowWriteChanged, \"delete\": o.AllowDeleteChanged, \"admin\": o.AllowAdminChanged}", "{\"write\": o.AllowWriteChanged, \"delete\": o.AllowDeleteChanged, \"admin\": false}", "./internal/config", "TestExplicitWriteAndAdminDenials", "ALLOW_DENIAL:"},
+		{"H12", "internal/cli/cli.go", "o.AllowWriteChanged = cmd.Flags().Changed(\"allow-write\")", "o.AllowWriteChanged = false", "./internal/install", "TestInstallPersistsWriteAndAdminPermissions", "INSTALL_PERMISSIONS:"},
+		{"H13", "internal/cli/cli.go", "o.AllowAdminChanged = cmd.Flags().Changed(\"allow-admin\")", "o.AllowAdminChanged = false", "./internal/install", "TestInstallPersistsWriteAndAdminPermissions", "INSTALL_PERMISSIONS:"},
+		{"H14", "internal/cli/cli.go", "fmt.Sprintf(\"--allow-%s=%t\", level, c.Allow[level])", "fmt.Sprintf(\"--allow-%s=%t\", level, c.Allow[level] && level != \"admin\")", "./internal/install", "TestInstallPersistsWriteAndAdminPermissions", "INSTALL_PERMISSIONS:"},
+		{"H18", "internal/s3core/objects.go", "if aws.ToString(head.ETag) == \"\" {", "if false && aws.ToString(head.ETag) == \"\" {", "./internal/s3core", "TestMoveRequiresSourceETag", "MOVE_MISSING_ETAG:"},
+		{"H19", "internal/s3core/objects.go", "sourceETag = head.ETag", "sourceETag = aws.String(\"\\\"initial\\\"\")", "./internal/s3core", "TestMoveUsesObservedETag", "MOVE_OBSERVED_ETAG:"},
+		{"H20", "internal/s3core/objects.go", "response.HTTPStatusCode() == http.StatusPreconditionFailed", "response.HTTPStatusCode() >= 400", "./internal/s3core", "TestMoveReportsDeletionFailure", "MOVE_DELETE_FAILURE:"},
+		{"H22", "internal/s3core/client.go", "http.StatusTooManyRequests: {}", "http.StatusTooManyRequests: {}, http.StatusRequestTimeout: {}", "./internal/s3core", "TestDoesNotRetryHTTP408", "NO_RETRY_408:"},
+		{"H28", "internal/cli/transfers.go", "\tif args.Key != \"\" {\n\t\targs.Key = strings.TrimSuffix(args.Key, \"/\") + \"/\"\n\t}\n", "", "./internal/cli", "TestUploadTreeAddsPrefixSeparator", "UPLOAD_SEPARATOR:"},
+		{"H29", "internal/cli/transfers.go", "os.OpenRoot(source)", "os.OpenRoot(\".\")", "./internal/cli", "TestRecursiveCopyReadsSelectedDirectory", "RECURSIVE_SELECTED:"},
+		{"H32", "internal/install/install.go", "strings.TrimPrefix(string(encoded), \"[mcp_servers]\\n\")", "strings.TrimPrefix(string(encoded), \"[mcp_servers]\")", "./internal/install", "TestCodexManagedBlockStartsWithChildTable", "MANAGED_BLOCK_BODY:"},
 		{"M2", "internal/safety/gate.go", "if confirm {", "if true {", "./internal/safety", "TestGateMatrix", "GATE: policy=confirm"},
 		{"M3", "internal/safety/gate.go", "case \"block\":\n\t\treturn fmt.Errorf(\"blocked: %s\", effect)", "case \"block\":\n\t\treturn nil", "./internal/safety", "TestGateMatrix", "GATE: policy=block"},
 		{"M4", "internal/safety/gate.go", "if g.Policy == \"elicit\" {", "if false && g.Policy == \"elicit\" {", "./internal/safety", "TestGateMatrix", "GATE: policy=elicit"},
@@ -200,8 +245,15 @@ func main() {
 	}
 	ok := true
 	for i, m := range mutations {
-		if !run(ctx, m, rollback, i == 0 && os.Getenv("MUTATION_GATE_SELFTEST_SIGNAL") == "1") {
+		mode := ""
+		if i == 0 {
+			mode = selftest
+		}
+		if !run(ctx, m, rollback, mode, stopped) {
 			ok = false
+		}
+		if ctx.Err() != nil {
+			break
 		}
 	}
 	if !ok {
