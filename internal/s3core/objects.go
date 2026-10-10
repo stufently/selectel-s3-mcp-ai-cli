@@ -187,7 +187,7 @@ func (c *Client) get(ctx context.Context, name string, a Args) (any, error) {
 	if e != nil {
 		return nil, e
 	}
-	defer out.Body.Close()
+	defer func() { _ = out.Body.Close() }()
 	data, e := io.ReadAll(io.LimitReader(out.Body, max+1))
 	if e != nil {
 		return nil, e
@@ -198,6 +198,9 @@ func (c *Client) get(ctx context.Context, name string, a Args) (any, error) {
 	encoding := a.Encoding
 	if encoding == "" {
 		encoding = "text"
+		if name == "s3_preview_object" && !utf8.Valid(data) {
+			encoding = "base64"
+		}
 	}
 	text := string(data)
 	if encoding == "base64" {

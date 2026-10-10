@@ -124,7 +124,7 @@ func unfinished(ctx context.Context, c *s3core.Client, a s3core.Args, max int) (
 	uploads := []map[string]any{}
 	for scanned < max && len(uploads) < 1000 {
 		args := a
-		args.MaxKeys = int32(min(1000, max-scanned, 1000-len(uploads)))
+		args.MaxKeys = int32(min(1000, max-scanned, 1000-len(uploads))) //nolint:gosec // Loop guarantees both remaining counts are positive, and min caps the result at 1000.
 		args.Token = token
 		args.UploadID = uploadID
 		raw, e := c.Execute(ctx, "s3_list_multipart_uploads", args, nil)

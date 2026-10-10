@@ -57,11 +57,11 @@ func readCredentials(p provider.Profile) (map[string]string, error) {
 	if info.Mode().Perm() & ^os.FileMode(0600) != 0 {
 		return nil, fmt.Errorf("credentials permissions must be 0600 or stricter: %s", path)
 	}
-	f, e := os.Open(path)
+	f, e := os.Open(path) //nolint:gosec // Derived private credential path; regular file and permissions were checked above.
 	if e != nil {
 		return nil, e
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	scan := bufio.NewScanner(f)
 	for scan.Scan() {
 		line := strings.TrimSpace(scan.Text())
@@ -133,7 +133,8 @@ func Load(p provider.Profile, o Overrides) (Config, error) {
 	if e != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return c, fmt.Errorf("invalid endpoint")
 	}
-	if u.Scheme != "https" && !(u.Scheme == "http" && c.AllowInsecure) {
+	secureEndpoint := u.Scheme == "https" || u.Scheme == "http" && c.AllowInsecure
+	if !secureEndpoint {
 		return c, fmt.Errorf("endpoint requires https; set %sALLOW_INSECURE=1 to allow http", p.EnvPrefix)
 	}
 	for _, level := range split(get("ALLOW")) {
@@ -191,7 +192,7 @@ func SaveCredentials(p provider.Profile, key, secret string) error {
 	if e != nil {
 		return e
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }()
 	if e = f.Chmod(0600); e != nil {
 		_ = f.Close()
 		return e

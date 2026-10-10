@@ -46,7 +46,7 @@ func (f *Files) Write(path string, r io.Reader) error {
 	if e != nil {
 		return e
 	}
-	defer f.root.Remove(name)
+	defer func() { _ = f.root.Remove(name) }()
 	_, e = io.Copy(out, r)
 	if e == nil {
 		e = out.Sync()

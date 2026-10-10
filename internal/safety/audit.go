@@ -25,7 +25,7 @@ func NewAudit(stderr io.Writer, path string, secrets ...string) (*Audit, error) 
 			return nil, e
 		}
 		var e error
-		file, e = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+		file, e = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600) //nolint:gosec // Audit destination is an explicit operator setting; existing type and permissions checked above.
 		if e != nil {
 			return nil, e
 		}

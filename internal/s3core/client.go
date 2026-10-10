@@ -226,7 +226,7 @@ func (c *Client) DownloadWriter(ctx context.Context, a Args, w io.Writer) error 
 	if e != nil {
 		return e
 	}
-	defer out.Body.Close()
+	defer func() { _ = out.Body.Close() }()
 	_, e = io.Copy(w, out.Body)
 	return e
 }
@@ -235,12 +235,12 @@ func (c *Client) downloadFile(ctx context.Context, a Args) (any, error) {
 	if e != nil {
 		return nil, e
 	}
-	defer files.Close()
+	defer func() { _ = files.Close() }()
 	out, e := c.SDK.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(a.Bucket), Key: aws.String(a.Key), VersionId: optional(a.VersionID)})
 	if e != nil {
 		return nil, e
 	}
-	defer out.Body.Close()
+	defer func() { _ = out.Body.Close() }()
 	e = files.Write(a.Path, out.Body)
 	return map[string]any{"path": a.Path}, e
 }
@@ -249,12 +249,12 @@ func (c *Client) uploadFile(ctx context.Context, a Args) (any, error) {
 	if e != nil {
 		return nil, e
 	}
-	defer files.Close()
+	defer func() { _ = files.Close() }()
 	in, e := files.Read(a.Path)
 	if e != nil {
 		return nil, e
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	if e = c.ensureAbsent(ctx, a); e != nil {
 		return nil, e
 	}
@@ -271,7 +271,7 @@ func EndpointDate(ctx context.Context, endpoint string) (time.Time, error) {
 	if e != nil {
 		return time.Time{}, e
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	return http.ParseTime(response.Header.Get("Date"))
 }
 

@@ -59,7 +59,7 @@ func TestFileRoot(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if _, e = f.Read("escape/private"); e == nil {
 		t.Fatal("FS_READ: escaped root via symlink")
 	}
@@ -78,7 +78,7 @@ func TestFileRoot(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 }
 func TestRedaction(t *testing.T) {
 	input := "secret-text https://example.test/a?X-Amz-Signature=abc&X-Amz-Credential=key%2Fscope&X-Amz-Security-Token=token&ok=1"

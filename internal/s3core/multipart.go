@@ -14,14 +14,14 @@ func (c *Client) upload(ctx context.Context, a Args, r io.ReadSeeker) (any, erro
 	if a.PartSize != 0 && a.PartSize < 5*1024*1024 {
 		return nil, fmt.Errorf("part_size must be at least 5 MiB")
 	}
-	uploader := manager.NewUploader(c.SDK, func(u *manager.Uploader) {
+	uploader := manager.NewUploader(c.SDK, func(u *manager.Uploader) { //nolint:staticcheck // v1 explicitly requires the pinned feature/s3/manager uploader.
 		if a.PartSize != 0 {
 			u.PartSize = a.PartSize
 		}
 		u.Concurrency = 2
 		u.MaxUploadParts = c.Profile.Limits.MaxParts
 	})
-	out, e := uploader.Upload(ctx, &s3.PutObjectInput{Bucket: aws.String(a.Bucket), Key: aws.String(a.Key), Body: r, ContentType: optional(a.ContentType), IfNoneMatch: c.condition(a)})
+	out, e := uploader.Upload(ctx, &s3.PutObjectInput{Bucket: aws.String(a.Bucket), Key: aws.String(a.Key), Body: r, ContentType: optional(a.ContentType), IfNoneMatch: c.condition(a)}) //nolint:staticcheck // v1 requires manager; retain its conditional-write propagation.
 	if e != nil {
 		return nil, e
 	}

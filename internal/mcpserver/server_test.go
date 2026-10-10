@@ -7,12 +7,69 @@ import (
 	"github.com/stufently/selectel-s3-mcp-ai-cli/internal/config"
 	"github.com/stufently/selectel-s3-mcp-ai-cli/internal/provider"
 	"github.com/stufently/selectel-s3-mcp-ai-cli/internal/s3core"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestElicitationEndToEnd(t *testing.T) {
+	p, e := provider.Load()
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, action := range []string{"accept", "decline", "cancel"} {
+		t.Run(action, func(t *testing.T) {
+			var requests atomic.Int32
+			httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { requests.Add(1); w.WriteHeader(204) }))
+			defer httpServer.Close()
+			cfg := config.Config{Pool: p.DefaultPool, Endpoint: httpServer.URL, AccessKey: "fake", SecretKey: "fake-secret", Policy: "elicit", Allow: map[string]bool{"delete": true}}
+			core, e := s3core.New(cfg, p)
+			if e != nil {
+				t.Fatal(e)
+			}
+			server, e := New(p, cfg, core, "test")
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer func() { _ = server.Close() }()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			ct, st := mcp.NewInMemoryTransports()
+			ss, e := server.MCP.Connect(ctx, st, nil)
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer func() { _ = ss.Close() }()
+			options := &mcp.ClientOptions{ElicitationHandler: func(_ context.Context, request *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+				if request.Params.Mode != "form" || !strings.Contains(request.Params.Message, "bucket/key") {
+					t.Fatal("wrong elicitation effect")
+				}
+				return &mcp.ElicitResult{Action: action, Content: map[string]any{"approved": true}}, nil
+			}}
+			client, e := mcp.NewClient(&mcp.Implementation{Name: "elicitation-tests", Version: "test"}, options).Connect(ctx, ct, nil)
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer func() { _ = client.Close() }()
+			result, e := client.CallTool(ctx, &mcp.CallToolParams{Name: "s3_delete_object", Arguments: map[string]any{"bucket": "bucket", "key": "key", "confirm": true}})
+			if e != nil {
+				t.Fatal(e)
+			}
+			want := int32(0)
+			if action == "accept" {
+				want = 1
+			}
+			if requests.Load() != want || result.IsError != (action != "accept") {
+				t.Fatalf("elicitation %s requests=%d error=%v", action, requests.Load(), result.IsError)
+			}
+		})
+	}
+}
 
 func connect(t *testing.T, p provider.Profile, c config.Config) (context.Context, *mcp.ClientSession) {
 	t.Helper()

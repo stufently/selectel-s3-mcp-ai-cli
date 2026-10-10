@@ -50,7 +50,7 @@ func TestCredentialPermissions(t *testing.T) {
 		t.Fatal(e)
 	}
 	path := filepath.Join(os.Getenv("HOME"), ".config", p.Binary, "credentials")
-	if e := os.Chmod(path, 0644); e != nil {
+	if e := os.Chmod(path, 0644); e != nil { //nolint:gosec // Negative test deliberately makes credentials world-readable.
 		t.Fatal(e)
 	}
 	_, e := Load(p, Overrides{})
