@@ -1,0 +1,301 @@
+{
+  "base_sha": "3b5af397200bb0dd03ce9b104db50d220b7fb1c4",
+  "mutants": [
+    {
+      "id": "G01",
+      "file": "internal/safety/gate.go",
+      "line": 21,
+      "original": "if e != nil {\n\t\t\t\treturn fmt.Errorf(\"confirmation failed: %w\", e)\n\t\t\t}",
+      "mutated": "if e != nil {\n\t\t\t\treturn nil\n\t\t\t}",
+      "note": "Ошибка elicitation считается одобрением: ask с ненулевой ошибкой даёт nil. TestGateMatrix всегда возвращает из ask nil. Убить: policy confirm, ask возвращает (false, ошибка) — Check должен вернуть confirmation failed."
+    },
+    {
+      "id": "G02",
+      "file": "internal/safety/gate.go",
+      "line": 36,
+      "original": "default:\n\t\treturn fmt.Errorf(\"invalid gate policy\")",
+      "mutated": "default:\n\t\treturn nil",
+      "note": "Неизвестная политика гейта разрешает действие вместо invalid gate policy. Матрица гоняет только allow/block/confirm/elicit. Убить: Gate{Policy:\"nope\"}.Check возвращает ошибку."
+    },
+    {
+      "id": "C01",
+      "file": "internal/safety/confirmation.go",
+      "line": 97,
+      "original": "if len(token) > 4096 {",
+      "mutated": "if len(token) > 1048576 {",
+      "note": "Потолок токена 4096 поднят до 1 MiB. Ни safety, ни mcpserver не шлют длинный токен. Не эквивалентно: токен в 4097 байт сейчас отвергается до проверки подписи. Убить: Consume со строкой длины 4097 возвращает confirmation_invalid."
+    },
+    {
+      "id": "C02",
+      "file": "internal/safety/confirmation.go",
+      "line": 75,
+      "original": "ExpiresAt: now.Add(5 * time.Minute).Unix()",
+      "mutated": "ExpiresAt: now.Add(4 * time.Minute).Unix()",
+      "note": "Срок подтверждения 4 минуты вместо 5. Проверки смотрят момент сразу и ровно +5 мин, к этому моменту и 4-минутный токен уже протух. Не эквивалентно на +4 мин 59 с. Убить: Consume через 4m59s успешен, через 5m — нет."
+    },
+    {
+      "id": "C03",
+      "file": "internal/safety/confirmation.go",
+      "line": 52,
+      "original": "decoder.UseNumber()",
+      "mutated": "if false { decoder.UseNumber() }",
+      "note": "decoder.UseNumber выключен, большие целые схлопываются в float64 и дают один digest. Тесты меняют только строки. Убить: Issue с n=9007199254740993 и Consume с n=9007199254740992 — ошибка."
+    },
+    {
+      "id": "C04",
+      "file": "internal/safety/confirmation.go",
+      "line": 114,
+      "original": "if !hmac.Equal(signature, mac.Sum(nil)) {",
+      "mutated": "if len(signature) == 0 || signature[0] != mac.Sum(nil)[0] {",
+      "note": "HMAC сверен только по первому байту. TestConfirmationSignature переворачивает sig[0], поэтому отказ сохраняется; порча любого другого байта принимается. Убить: инверт второго байта подписи при живом первом."
+    },
+    {
+      "id": "SCP02",
+      "file": "internal/safety/scope.go",
+      "line": 43,
+      "original": "if b == \"\" {\n\t\treturn fmt.Errorf(\"bucket is required\")\n\t}",
+      "mutated": "if false && b == \"\" {\n\t\treturn fmt.Errorf(\"bucket is required\")\n\t}",
+      "note": "Пустое имя бакета проходит Scope.Check. Ни один кейс TestScope и ни один вызов s3core не передаёт пустой bucket. Убить: Check(\"\", \"k\", false) возвращает bucket is required."
+    },
+    {
+      "id": "F01",
+      "file": "internal/safety/files.go",
+      "line": 45,
+      "original": "os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600",
+      "mutated": "os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644",
+      "note": "Временный файл скачивания создаётся с 0644 вместо 0600. TestFileRoot читает байты и не смотрит mode. Убить: после Write Stat().Mode().Perm()==0600."
+    },
+    {
+      "id": "F02",
+      "file": "internal/safety/files.go",
+      "line": 24,
+      "original": "if !filepath.IsLocal(path) || strings.Contains(path, \"\\\\\") {",
+      "mutated": "if !filepath.IsLocal(path) {",
+      "note": "Отброшена явная отсечка обратного слэша. На Linux filepath.IsLocal считает a\\\\b локальным именем, os.Root такое имя откроет. Тесты слэш не подставляют. Убить: файл с \\\\ в имени внутри корня, Read этого пути — ошибка, не содержимое."
+    },
+    {
+      "id": "F03",
+      "file": "internal/safety/files.go",
+      "line": 24,
+      "original": "if !filepath.IsLocal(path) || strings.Contains(path, \"\\\\\") {",
+      "mutated": "if strings.Contains(path, \"\\\\\") {",
+      "note": "Снят filepath.IsLocal, цикл по .. и os.Root остаются. Абсолютный путь и пустая строка по-прежнему дают ошибку, но уже от os.Root, не «file path must be relative». Тест проверяет только err==nil. Убить: Read(\"/tmp/private\") содержит текст file root."
+    },
+    {
+      "id": "RD01",
+      "file": "internal/safety/redact.go",
+      "line": 8,
+      "original": "(?i)([?&]X-Amz-(?:Signature|Credential|Security-Token)=)",
+      "mutated": "([?&]X-Amz-(?:Signature|Credential|Security-Token)=)",
+      "note": "Снят флаг (?i). Канонический X-Amz-Signature в тесте по-прежнему маскируется, x-amz-signature — нет. Убить: Redact строки с x-amz-signature=abc не содержит abc."
+    },
+    {
+      "id": "RD02",
+      "file": "internal/safety/redact.go",
+      "line": 13,
+      "original": "if secret != \"\" {",
+      "mutated": "if true {",
+      "note": "Пустой секрет больше не пропускается. strings.ReplaceAll(s, \"\", \"[REDACTED]\") вставляет замену между рунами. Тест передаёт непустой секрет. Убить: Redact(\"ab\", \"\") == \"ab\"."
+    },
+    {
+      "id": "CFG02",
+      "file": "internal/config/config.go",
+      "line": 173,
+      "original": "if o.Policy != \"\" {\n\t\tc.Policy = o.Policy\n\t}",
+      "mutated": "if false && o.Policy != \"\" {\n\t\tc.Policy = o.Policy\n\t}",
+      "note": "Флаг destructive-policy игнорируется, остаётся env или дефолт confirm. TestPrecedence флаг политики не задаёт. Убить: Overrides{Policy:\"block\"} даёт Policy block; env allow и флаг block — block."
+    },
+    {
+      "id": "CFG03",
+      "file": "internal/config/config.go",
+      "line": 81,
+      "original": "if !info.Mode().IsRegular() || !privatePermissions(info.Mode()) {\n\t\treturn nil, fmt.Errorf(\"credentials must be a regular file with 0600 or stricter permissions\")\n\t}",
+      "mutated": "if !info.Mode().IsRegular() {\n\t\treturn nil, fmt.Errorf(\"credentials must be a regular file with 0600 or stricter permissions\")\n\t}",
+      "note": "Права не перечитываются у уже открытого файла. Chmod 0644 до Load ловит первый Lstat, второй stat мёртв для этого теста. Не эквивалентно при подмене inode между Lstat и Open. Убить: открытый fd с mode шире 0600 отвергается, даже если Lstat видел 0600."
+    },
+    {
+      "id": "CFG05",
+      "file": "internal/config/config.go",
+      "line": 183,
+      "original": "if o.FileRoot != \"\" {\n\t\tc.FileRoot = o.FileRoot\n\t}",
+      "mutated": "if false && o.FileRoot != \"\" {\n\t\tc.FileRoot = o.FileRoot\n\t}",
+      "note": "Флаг file-root не перекрывает окружение. Тестов на Overrides.FileRoot нет. Убить: env FILE_ROOT и Overrides.FileRoot — в Config побеждает флаг."
+    },
+    {
+      "id": "CFG06",
+      "file": "internal/config/config.go",
+      "line": 165,
+      "original": "for level, enabled := range map[string]bool{\"write\": o.AllowWrite, \"delete\": o.AllowDelete, \"admin\": o.AllowAdmin} {\n\t\tif enabled {\n\t\t\tc.Allow[level] = true\n\t\t}\n\t}",
+      "mutated": "for level, enabled := range map[string]bool{\"write\": o.AllowWrite, \"delete\": o.AllowDelete, \"admin\": o.AllowAdmin} {\n\t\tif false && enabled {\n\t\t\tc.Allow[level] = true\n\t\t}\n\t}",
+      "note": "Флаги allow-write/delete/admin не выдают уровни. TestPrecedence смотрит пустой Allow без флагов. Убить: Overrides{AllowWrite:true} при пустом ALLOW даёт Allow[\"write\"]."
+    },
+    {
+      "id": "SRV02",
+      "file": "internal/mcpserver/server.go",
+      "line": 79,
+      "original": "ip.Capabilities.Elicitation.Form != nil || ip.Capabilities.Elicitation.URL == nil",
+      "mutated": "ip.Capabilities.Elicitation.Form != nil && ip.Capabilities.Elicitation.URL == nil",
+      "note": "supportsForm требует Form!=nil и URL==nil одновременно. SDK для протокола старше 2025-11-25 шлёт elicitation:{} (оба nil): оригинал считает это формой из-за URL==nil, мутант — нет. Тесты только 2025-11-25 и 2026-07-28, там Form выставлен. Убить: протокол до 2025-11-25, клиент с ElicitationHandler, policy elicit — сервер присылает форму, а не elicitation_required."
+    },
+    {
+      "id": "SRV03",
+      "file": "internal/mcpserver/server.go",
+      "line": 91,
+      "original": "!supportsForm || !ok || response == nil || response.Action != \"accept\"",
+      "mutated": "!supportsForm || !ok || response == nil || response.Action != \"accept\" || response.Content[\"approved\"] != true",
+      "note": "Accept без content.approved==true отклоняется. Код смотрит только Action; тесты на accept всегда шлют approved:true. Убить: Action accept и approved:false выполняет удаление (ноль форм на повторе, один HTTP)."
+    },
+    {
+      "id": "SRV04",
+      "file": "internal/mcpserver/server.go",
+      "line": 128,
+      "original": "if len(data) > int(s3core.InlineLimit) {",
+      "mutated": "if len(data) > int(s3core.InlineLimit)*8 {",
+      "note": "Текст ответа режется только после 8×InlineLimit. Теста на крупный structuredContent нет. Убить: JSON длиннее 262144 байт — в Text короткая summary, не полное тело."
+    },
+    {
+      "id": "REG01",
+      "file": "internal/mcpserver/registry.go",
+      "line": 62,
+      "original": "return !spec.FileRoot || c.FileRoot != \"\"",
+      "mutated": "return !spec.FileRoot",
+      "note": "Инструменты с FileRoot не регистрируются, даже если корень задан. Golden снимается без FileRoot, оба варианта дают один список. Убить: FileRoot непустой и Allow write — в списке есть s3_download_file и s3_upload_file; без корня их нет."
+    },
+    {
+      "id": "REG03",
+      "file": "internal/mcpserver/registry.go",
+      "line": 94,
+      "original": "AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}}",
+      "mutated": "AdditionalProperties: &jsonschema.Schema{}",
+      "note": "AdditionalProperties больше не запрещены. Лишние поля никто не шлёт. Убить: s3_head_object с полем extra — invalid tool arguments и ноль HTTP."
+    },
+    {
+      "id": "CL01",
+      "file": "internal/s3core/client.go",
+      "line": 96,
+      "original": "\"s3_multipart_abort\", \"s3_delete_bucket\", \"s3_put_bucket_policy\"",
+      "mutated": "\"s3_multipart_abort\", \"s3_put_bucket_policy\"",
+      "note": "s3_delete_bucket вынут из Gated. Юнит-тесты не вызывают удаление бакета под policy confirm. Убить: confirm, без confirm:true — ошибка и ноль HTTP."
+    },
+    {
+      "id": "CL02",
+      "file": "internal/s3core/client.go",
+      "line": 99,
+      "original": "return a.Status == \"Suspended\"",
+      "mutated": "return false",
+      "note": "Приостановка версионирования не требует гейта. Suspended никто не вызывает. Убить: Status Suspended без confirm — ошибка и ноль HTTP; Status Enabled гейт не включает."
+    },
+    {
+      "id": "CL03",
+      "file": "internal/s3core/client.go",
+      "line": 162,
+      "original": "if a.Overwrite {\n\t\treturn nil\n\t}",
+      "mutated": "if false && a.Overwrite {\n\t\treturn nil\n\t}",
+      "note": "overwrite true больше не пропускает проверку отсутствия. Тесты существующей цели идут с overwrite false. Убить: policy allow, overwrite true, HEAD 200 — запись выполняется, ошибки already_exists нет."
+    },
+    {
+      "id": "CL05",
+      "file": "internal/s3core/client.go",
+      "line": 181,
+      "original": "if n == 0 {\n\t\treturn 1000, nil\n\t}",
+      "mutated": "if n == 0 {\n\t\treturn 100, nil\n\t}",
+      "note": "Дефолт max_keys 100 вместо 1000. List с MaxKeys 0 не тестируется. Убить: s3_list_objects без max_keys шлёт max-keys=1000."
+    },
+    {
+      "id": "CL06",
+      "file": "internal/s3core/client.go",
+      "line": 184,
+      "original": "if n < 1 || n > 1000 {",
+      "mutated": "if n < 1 || n > 10000 {",
+      "note": "max_keys до 10000 принимается. Верхняя граница не тестируется. Убить: MaxKeys 1001 — ошибка до HTTP; 1000 проходит page."
+    },
+    {
+      "id": "CL07",
+      "file": "internal/s3core/client.go",
+      "line": 190,
+      "original": "if n == 0 {\n\t\tn = 3600\n\t}",
+      "mutated": "if n == 0 {\n\t\tn = 60\n\t}",
+      "note": "Дефолт presign 60 секунд вместо 3600. expires 0 никто не вызывает. Убить: s3_presign_get с Expires 0 возвращает expires_seconds 3600; значение больше PresignMaxSeconds — ошибка."
+    },
+    {
+      "id": "CL08",
+      "file": "internal/s3core/client.go",
+      "line": 23,
+      "original": "const InlineLimit int64 = 262144",
+      "mutated": "const InlineLimit int64 = 131072",
+      "note": "InlineLimit снижен до 131072. TestInlineLimits берёт размер из той же константы, поэтому порог 262144 не зафиксирован. Убить: put ровно 262144 байт проходит, 262145 — нет, без обращения к символу InlineLimit."
+    },
+    {
+      "id": "CL09",
+      "file": "internal/s3core/client.go",
+      "line": 126,
+      "original": "if key == p {\n\t\t\t\t\treturn fmt.Errorf(\"scope_denied: listing requires prefix %s/\", p)\n\t\t\t\t}",
+      "mutated": "if false && key == p {\n\t\t\t\t\treturn fmt.Errorf(\"scope_denied: listing requires prefix %s/\", p)\n\t\t\t\t}",
+      "note": "Листинг ровно по разрешённому префиксу без слэша больше не запрещён. TestBucketScopeBeforeHTTP листит пустой prefix, его режет Scope.Check раньше. Убить: префикс backups/, list prefix backups — scope_denied про слэш; list prefix backups/ — этот отказ не срабатывает."
+    },
+    {
+      "id": "CL10",
+      "file": "internal/s3core/client.go",
+      "line": 105,
+      "original": "func wholeBucket(name string) bool {\n\treturn name == \"s3_get_bucket_config\" || name == \"s3_create_bucket\" || name == \"s3_delete_bucket\" || strings.HasPrefix(name, \"s3_put_bucket_\") || name == \"s3_delete_bucket_policy\" || name == \"s3_put_object_lock_configuration\"\n}",
+      "mutated": "func wholeBucket(name string) bool {\n\treturn strings.HasPrefix(name, \"not-a-bucket-tool\")\n}",
+      "note": "wholeBucket всегда false, бакетовые операции скоупятся как ключи. При пустом ключе отказ и так даёт Scope.Check, поэтому TestBucketScopeBeforeHTTP зелёный. Убить: префикс backups/ и s3_delete_bucket с Key backups/a — отказ; мутант такой ключ пропускает."
+    },
+    {
+      "id": "CL11",
+      "file": "internal/s3core/client.go",
+      "line": 139,
+      "original": "if a.Bucket == a.SourceBucket && a.Key == a.SourceKey {\n\t\t\treturn fmt.Errorf(\"source and destination must differ\")\n\t\t}",
+      "mutated": "if false && a.Bucket == a.SourceBucket && a.Key == a.SourceKey {\n\t\t\treturn fmt.Errorf(\"source and destination must differ\")\n\t\t}",
+      "note": "Копия и перенос в тот же ключ разрешены. Сравнения source==dest в тестах нет. Убить: s3_copy_object с одинаковыми bucket/key — ошибка must differ и ноль HTTP."
+    },
+    {
+      "id": "CL12",
+      "file": "internal/s3core/client.go",
+      "line": 144,
+      "original": "if len(a.Objects) == 0 || len(a.Objects) > 1000 {",
+      "mutated": "if len(a.Objects) == 0 || len(a.Objects) > 100000 {",
+      "note": "Пакетное удаление принимает больше 1000 ключей. Граница не тестируется. Убить: 1001 объект — ошибка до HTTP; 1000 эту проверку проходит."
+    },
+    {
+      "id": "CL13",
+      "file": "internal/s3core/client.go",
+      "line": 175,
+      "original": "if !a.Overwrite && c.Profile.Features[\"conditional_writes\"] {",
+      "mutated": "if !a.Overwrite {",
+      "note": "If-None-Match ставится и при выключенных conditional_writes. В тестовом профиле фича true, заголовок совпадает с оригиналом. Не эквивалентно при Features[conditional_writes]=false. Убить: фича выключена, put без overwrite — заголовка If-None-Match нет."
+    },
+    {
+      "id": "INS01",
+      "file": "internal/install/install.go",
+      "line": 124,
+      "original": "quote := func(v string) string { return \"'\" + strings.ReplaceAll(v, \"'\", \"'\\\\''\") + \"'\" }",
+      "mutated": "quote := func(v string) string { return v }",
+      "note": "Команда claude mcp add больше не квотит аргументы. Тест ищет подстроку POOL=ru-6, она есть и без кавычек. Убить: значение с пробелом или одинарной кавычкой попадает в вывод в одинарных кавычках, кавычка экранирована как '\\''."
+    },
+    {
+      "id": "INS02",
+      "file": "internal/install/install.go",
+      "line": 181,
+      "original": "strings.Count(text, begin) != 1 || strings.Count(text, end) != 1",
+      "mutated": "false",
+      "note": "Повтор маркеров managed-блока больше не ошибка. Тест Codex пишет один чужой блок и один неуправляемый. Убить: два begin-маркера и --force — ошибка invalid managed markers, файл не изменён."
+    },
+    {
+      "id": "CLI01",
+      "file": "internal/cli/cli.go",
+      "line": 121,
+      "original": "\t\targs.Confirm = true\n\t}\n\tvar out any\n",
+      "mutated": "\t}\n\tvar out any\n",
+      "note": "После подтверждения rm/rb/mv не ставится args.Confirm, и ядро с policy confirm отклоняет уже одобренный вызов. TestNonTTYDelete не передаёт --yes и до этой строки не доходит. Conformance с --yes под тегом conformance в go test пакета не входит. Убить: rm --yes на non-TTY с policy confirm доходит до HTTP, а не возвращает confirmation_required."
+    },
+    {
+      "id": "CLI02",
+      "file": "internal/cli/cli.go",
+      "line": 135,
+      "original": "if a.yes {\n\t\treturn nil\n\t}",
+      "mutated": "if a.yes && !strings.Contains(effect, \"s3_delete\") && !strings.Contains(effect, \"s3_move\") {\n\t\treturn nil\n\t}",
+      "note": "--yes не одобряет действия, в тексте которых есть s3_delete или s3_move, то есть rm, rb и mv. Юнит-тест проверяет только rm без --yes. Убить: rm --yes, rb --yes и mv --yes на non-TTY не возвращают ExitError с кодом 2."
+    }
+  ]
+}
