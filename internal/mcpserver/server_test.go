@@ -65,7 +65,7 @@ func TestElicitationEndToEnd(t *testing.T) {
 				want = 1
 			}
 			if requests.Load() != want || result.IsError != (action != "accept") {
-				t.Fatalf("elicitation %s requests=%d error=%v", action, requests.Load(), result.IsError)
+				t.Fatalf("elicitation %s requests=%d error=%v content=%+v", action, requests.Load(), result.IsError,result.Content[0])
 			}
 		})
 	}
