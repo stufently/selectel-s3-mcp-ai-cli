@@ -50,6 +50,7 @@ features:
   cors: true
   bucket_policy: true
   conditional_writes: true
+  conditional_delete: true
   multipart: true
   presign: true
   acl: false

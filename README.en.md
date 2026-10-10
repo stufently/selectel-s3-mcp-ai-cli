@@ -132,3 +132,5 @@ Planned: Yandex, VK Cloud, Cloud.ru, Timeweb, MWS, Beget.
 ## License
 
 [MIT](LICENSE). [Facts and assumptions](docs/research/selectel-s3.md). Docker checks: bash scripts/go.sh go test -race ./..., bash scripts/conformance.sh, bash scripts/mcp_smoke.sh, bash scripts/mutation_gate.sh, bash scripts/check_docs.sh. Conformance uses versitygw v1.8.0 and fake keys.
+
+Shared MCP/CLI behavior, safety and checks come from [s3-mcp-ai-cli-kit v0.1.0](https://github.com/stufently/s3-mcp-ai-cli-kit/tree/v0.1.0); this repository owns its embedded profile, thin main and Selectel documentation.

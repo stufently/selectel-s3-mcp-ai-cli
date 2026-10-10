@@ -1,6 +1,5 @@
 .git
-.superpowers
+.kit
 .conformance-data
 dist
-report.json
-report-blocked.md
+.superpowers

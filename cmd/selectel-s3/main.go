@@ -3,7 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
-	"github.com/stufently/selectel-s3-mcp-ai-cli/internal/cli"
+	"github.com/stufently/s3-mcp-ai-cli-kit/cli"
 	"github.com/stufently/selectel-s3-mcp-ai-cli/internal/provider"
 	"os"
 )

@@ -5,26 +5,5 @@ on:
 permissions:
   contents: read
 jobs:
-  unit-lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: 1.27.2
-      - run: go build ./... && go vet ./... && go vet -tags conformance ./...
-      - run: go test -race -count=1 ./...
-      - uses: golangci/golangci-lint-action@v9.3.0
-        with:
-          version: v2.14.0
-          args: --build-tags conformance ./...
-      - run: docker run --rm -v "$PWD:/repo:ro" -w /repo rhysd/actionlint:1.7.12 -no-color
-  conformance:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - run: mkdir -p "$HOME/.cache/sel-s3-go"
-      - run: bash scripts/conformance.sh
-      - run: bash scripts/mcp_smoke.sh
-      - run: bash scripts/mutation_gate.sh
-      - run: bash scripts/check_docs.sh
+  verify:
+    uses: stufently/s3-mcp-ai-cli-kit/.github/workflows/provider-ci.yml@v0.1.0

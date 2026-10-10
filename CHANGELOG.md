@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Move shared MCP/CLI, safety and checks to s3-mcp-ai-cli-kit v0.1.0.
+- Refuse unprotected default writes; gate approved overwrites and require conditional delete for move.
+
+
+## Unreleased
+
 - 2026-10-10: v1 — один бинарь `selectel-s3`: MCP-сервер (35 инструментов, уровни
   read/write/delete/admin, гейт опасных операций с подписанным подтверждением, скоуп по
   бакетам и префиксам, корень локальных файлов, аудит), CLI (`ls`, `cp`, `mv`, `rm`,

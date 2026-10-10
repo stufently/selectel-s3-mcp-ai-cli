@@ -12,15 +12,12 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: 1.27.2
-      - uses: goreleaser/goreleaser-action@v7.2.3
-        with:
-          version: v2.18.3
-          args: release --clean
+      - name: Release binaries in Docker
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p "$HOME/.cache/sel-s3-go"
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e GOCACHE=/cache/build -e GOMODCACHE=/cache/mod -e GITHUB_TOKEN -v "$HOME/.cache/sel-s3-go:/cache" -v "$PWD:/src" -w /src goreleaser/goreleaser:v2.18.3 release --clean
       - uses: docker/setup-buildx-action@v4.4.1
       - name: Publish image
         env:
@@ -30,4 +27,4 @@ jobs:
           COMMIT: ${{ github.sha }}
         run: |
           printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$OWNER" --password-stdin
-          docker buildx build --platform linux/amd64,linux/arm64 --build-arg "VERSION=${TAG#v}" --build-arg "COMMIT=$COMMIT" -t "ghcr.io/$OWNER/selectel-s3-mcp-ai-cli:${TAG#v}" --push .
+          docker buildx build --platform linux/amd64,linux/arm64 --build-arg "BUILD_UID=$(id -u)" --build-arg "BUILD_GID=$(id -g)" --build-arg "VERSION=${TAG#v}" --build-arg "COMMIT=$COMMIT" -t "ghcr.io/$OWNER/selectel-s3-mcp-ai-cli:${TAG#v}" --push .

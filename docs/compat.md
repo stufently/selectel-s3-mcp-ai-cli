@@ -7,6 +7,7 @@ Generated from the embedded provider profile.
 | acl | false |
 | bucket_policy | true |
 | bucket_tagging | false |
+| conditional_delete | true |
 | conditional_writes | true |
 | cors | true |
 | lifecycle | false |

@@ -147,3 +147,5 @@ ru-1 и ru-3 — Санкт-Петербург; ru-6 (Multi-AZ), ru-7, gis-1 (и
 [MIT](LICENSE). [Проверенные факты и предположения](docs/research/selectel-s3.md).
 
 Проверки в Docker: bash scripts/go.sh go test -race ./..., bash scripts/conformance.sh, bash scripts/mcp_smoke.sh, bash scripts/mutation_gate.sh, bash scripts/check_docs.sh. Conformance использует versitygw v1.8.0 и тестовые ключи.
+
+Общие MCP/CLI, защиты и проверки поставляет [s3-mcp-ai-cli-kit v0.1.0](https://github.com/stufently/s3-mcp-ai-cli-kit/tree/v0.1.0); в этом репозитории остаются встроенный профиль, тонкий main и документы Selectel.
