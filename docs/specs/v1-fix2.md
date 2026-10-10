@@ -56,7 +56,8 @@ H04 H06 H07 H10 H11 H12 H13 H14 H18 H19 H20 H22 H28 H29 H32.
 ## 7. Разрешения
 
 Добавлять и править `*_test.go`, `scripts/mutation_gate.go`, `scripts/mutation_gate.sh`.
-Коммитить в `v1-fix1` в клоне.
+Коммитить в `v1-fix1` в клоне. Спека `docs/specs/v1-fix2.md` уже закоммичена координатором;
+если она untracked — закоммить её первой.
 
 ## 8. Критерии приёмки
 
@@ -68,7 +69,7 @@ H04 H06 H07 H10 H11 H12 H13 H14 H18 H19 H20 H22 H28 H29 H32.
 - **AC-006** Сборка, vet и unit-тесты с race — `bash -c 'bash scripts/go.sh sh -c "go build ./... && go vet ./... && go vet -tags conformance ./... && go test -race -count=1 ./..."'`
 - **AC-007** Линтер — `bash -c 'docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e GOCACHE=/cache/build -e GOMODCACHE=/cache/mod -e GOLANGCI_LINT_CACHE=/cache/lint -v "$HOME/.cache/sel-s3-go:/cache" -v "$PWD:/src" -w /src golangci/golangci-lint:v2.14.0 golangci-lint run --build-tags conformance ./...'`
 - **AC-008** Conformance и MCP-смоук — `bash -c 'bash scripts/conformance.sh && bash scripts/mcp_smoke.sh'`
-- **AC-009** Код продукта не изменён, границы и чистое дерево — `bash -c 'test -z "$(git diff --name-only 309d53e0255cf56315f5ce3a4da48cc30f34345e..HEAD -- LICENSE TASKS.md CHANGELOG.md README.md README.en.md docs cmd ":(exclude)docs/specs/v1-fix2.md" ":(exclude)docs/specs/v1-fix2-mutants.json")" && test -z "$(git diff --name-only 309d53e0255cf56315f5ce3a4da48cc30f34345e..HEAD -- internal | grep -v "_test\.go$")" && test -z "$(git status --porcelain -- . ":(exclude)report.json" ":(exclude)report-blocked.md")"'`
+- **AC-009** Код продукта не изменён, границы и чистое дерево — `bash -c 'test -z "$(git diff --name-only 309d53e0255cf56315f5ce3a4da48cc30f34345e..HEAD -- LICENSE TASKS.md CHANGELOG.md README.md README.en.md docs cmd ":(exclude)docs/specs/v1-fix2.md" ":(exclude)docs/specs/v1-fix2-mutants.json")" && test -z "$(git diff --name-only 309d53e0255cf56315f5ce3a4da48cc30f34345e..HEAD -- internal | grep -v "_test\.go$")" && git ls-files --error-unmatch docs/specs/v1-fix2.md >/dev/null && test -z "$(git status --porcelain -- . ":(exclude)report.json" ":(exclude)report-blocked.md")"'`
 
 ## 9. Авторевью
 
