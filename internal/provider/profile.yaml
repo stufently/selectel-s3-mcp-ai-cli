@@ -1,0 +1,69 @@
+id: selectel
+display_name: Selectel
+env_prefix: SELECTEL_S3_
+uri_scheme: selectel-s3
+binary: selectel-s3
+default_pool: ru-1
+path_style: true
+pools:
+  - id: ru-1
+    endpoint: https://s3.ru-1.storage.selcloud.ru
+    location: Санкт-Петербург, Single-AZ
+    multi_az: false
+    storage_classes: [standard, cold]
+  - id: ru-3
+    endpoint: https://s3.ru-3.storage.selcloud.ru
+    location: Санкт-Петербург
+    multi_az: false
+    storage_classes: [standard, cold, ice]
+  - id: ru-6
+    endpoint: https://s3.ru-6.storage.selcloud.ru
+    location: Москва, Multi-AZ
+    multi_az: true
+    storage_classes: [standard, cold]
+  - id: ru-7
+    endpoint: https://s3.ru-7.storage.selcloud.ru
+    location: Москва, Single-AZ
+    multi_az: false
+    storage_classes: [standard, cold]
+  - id: gis-1
+    endpoint: https://s3.gis-1.storage.selcloud.ru
+    location: Москва, изолированный пул ГИС (ФСТЭК)
+    multi_az: false
+    storage_classes: [standard, cold]
+  - id: uz-2
+    endpoint: https://s3.uz-2.srvstorage.uz
+    location: Узбекистан
+    multi_az: false
+    storage_classes: [standard, cold]
+storage_classes:
+  - {id: standard, name_ru: Стандартное, price_rub_gb_month: 2.56, verified: false, checked_at: "2026-10"}
+  - {id: cold, name_ru: Холодное, price_rub_gb_month: 1.25, verified: false, checked_at: "2026-10"}
+  - {id: ice, name_ru: Ледяное, price_rub_gb_month: 0.89, verified: false, checked_at: "2026-10"}
+features:
+  versioning: true
+  object_lock_config: true
+  object_retention: false
+  object_tagging: false
+  bucket_tagging: false
+  lifecycle: false
+  cors: true
+  bucket_policy: true
+  conditional_writes: true
+  multipart: true
+  presign: true
+  acl: false
+limits:
+  max_put_bytes: 5000000000
+  max_parts: 10000
+  rate_limits: {all: 2000, get_head: 1000, post: 200, put: 300, delete: 300}
+presign_max_seconds: 604800
+verified: false
+presign_note: "Потолок presigned не проверен; документация говорит о сроке жизни подписи запроса 15 минут."
+docs_urls:
+  - https://docs.selectel.ru/api/object-storage-s3/
+  - https://docs.selectel.ru/s3/manage/domains/
+  - https://docs.selectel.ru/s3/about/limitations/
+  - https://docs.selectel.ru/s3/about/payment/
+  - https://docs.selectel.ru/s3/buckets/create-bucket/
+  - https://docs.selectel.ru/s3/buckets/limits/

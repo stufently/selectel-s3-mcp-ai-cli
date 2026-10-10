@@ -1,6 +1,4 @@
 /dist/
-/bin/
-*.test
-*.out
-coverage.*
-.env
+/.superpowers/
+/.conformance-data/
+/selectel-s3
