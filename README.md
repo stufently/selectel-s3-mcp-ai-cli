@@ -1,12 +1,14 @@
 # Selectel S3 MCP Server & AI CLI
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Status](https://img.shields.io/badge/status-development-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
-Selectel S3 Object Storage через MCP и CLI: Claude Code, Cursor и Codex помогают выполнять бэкап и работать с файлами, а AI-агент получает ограниченный доступ и подтверждение опасных действий.
+MCP-сервер и CLI для S3 Селектел (Selectel Object Storage): подключение к Claude Code, Cursor и Codex, просмотр бакетов, восстановление бэкапов и работа с файлами через Go-бинарь `selectel-s3`.
+
+[English guide](README.en.md) · [Каталог S3 MCP-серверов](https://stufently.github.io/s3-mcp-ai-cli-kit/)
 
 ## English
 
-A single Go binary for Selectel Object Storage: a stdio MCP server, streaming CLI and installable agent skill. Read-only MCP access is the default; independent write/delete/admin levels, bucket/prefix scope, human approval and confined local file access protect data. Large files travel directly through presigned URLs or multipart uploads. See the [full English guide](README.en.md).
+A Go MCP server, CLI and agent skill for Selectel S3 Object Storage. Connect Claude Code, Cursor and Codex to scoped object storage for inspection and backup recovery. Six profile pools; tagging and lifecycle tools are disabled. See the [full English guide](README.en.md).
 
 ## Возможности
 
@@ -69,6 +71,18 @@ Codex: ~/.codex/config.toml. Существующая таблица требу�
 
 Аналитика сканирует максимум max_scan (по умолчанию 10000); partial/token отмечают неполный результат. Prefix usage выдаёт страницы агрегатов через next_result_offset. Это не биллинг.
 
+## Сценарий: Выбор пула и восстановление резервных копий
+
+Выберите пул существующего бакета и проверьте архив перед восстановлением. `--pool` меняет и endpoint, и регион подписи; для московского пула `ru-6` пример выглядит так:
+
+```bash
+selectel-s3 --pool ru-6 ls backups/daily/ --json
+selectel-s3 --pool ru-6 stat backups/daily/archive.tar
+selectel-s3 --pool ru-6 cp s3://backups/daily/archive.tar ./restored-selectel.tar
+```
+
+Примеры используют существующий бакет `backups` и объект `daily/archive.tar`; замените их своими значениями. Профиль и API облака ещё требуют [живой проверки](TASKS.md).
+
 ## CLI
 
 ```bash
@@ -128,6 +142,12 @@ ru-1 и ru-3 — Санкт-Петербург; ru-6 (Multi-AZ), ru-7, gis-1 (и
 
 ## FAQ
 
+**Как выбрать регион Selectel S3 для MCP?** Укажите `SELECTEL_S3_POOL` или флаг `--pool` с идентификатором из [таблицы совместимости](docs/compat.md). Пул должен совпадать с пулом вашего бакета; `ru-1` — значение по умолчанию.
+
+**Можно ли настроить lifecycle и теги Селектел через этот MCP-сервер?** В профиле проекта эти возможности выключены, поэтому соответствующие инструменты не регистрируются. Настройки TTL через панель описаны в [ресерче Selectel](docs/research/selectel-s3.md).
+
+**Как восстановить бэкап из Selectel S3?** Используйте `stat`, затем `cp s3://bucket/key ./new-file`. CLI скачивает потоково и публикует локальный файл атомарно; новый путь позволяет избежать замены существующего архива.
+
 **Что такое MCP-сервер?** Программа предоставляет агентам инструменты и ресурсы через Model Context Protocol; здесь stdio.
 
 **Как подключить MCP-сервер к Claude Code?** Сохрани ключи auth set, затем используй project install либо напечатанную user-команду.
@@ -140,7 +160,18 @@ ru-1 и ru-3 — Санкт-Петербург; ru-6 (Multi-AZ), ru-7, gis-1 (и
 
 ## Другие провайдеры
 
-В планах: Yandex, VK Cloud, Cloud.ru, Timeweb, MWS, Beget.
+[Общий каталог: MCP-серверы и CLI для российских S3](https://stufently.github.io/s3-mcp-ai-cli-kit/).
+
+| Провайдер | Репозиторий | Сценарий |
+|---|---|---|
+| Selectel | [selectel-s3-mcp-ai-cli](https://github.com/stufently/selectel-s3-mcp-ai-cli) | Выбор пула и восстановление резервных копий |
+| Yandex Cloud | [yandex-s3-mcp-ai-cli](https://github.com/stufently/yandex-s3-mcp-ai-cli) | Инвентаризация объектов и проверка версий бэкапов |
+| VK Cloud | [vkcloud-s3-mcp-ai-cli](https://github.com/stufently/vkcloud-s3-mcp-ai-cli) | Проверка Hotbox/Icebox и доступ к нужному региону |
+| Cloud.ru | [cloudru-s3-mcp-ai-cli](https://github.com/stufently/cloudru-s3-mcp-ai-cli) | Диагностика доступа к Evolution Object Storage |
+| Timeweb Cloud | [timeweb-s3-mcp-ai-cli](https://github.com/stufently/timeweb-s3-mcp-ai-cli) | Восстановление архивов и учёт объёма префикса |
+| MWS | [mws-s3-mcp-ai-cli](https://github.com/stufently/mws-s3-mcp-ai-cli) | Проверка HMAC-доступа и короткие ссылки на архивы |
+| Beget | [beget-s3-mcp-ai-cli](https://github.com/stufently/beget-s3-mcp-ai-cli) | Просмотр и восстановление файлов из готового бакета |
+| Shared Go kit | [s3-mcp-ai-cli-kit](https://github.com/stufently/s3-mcp-ai-cli-kit) | Общие MCP, CLI, защиты и CI |
 
 ## Лицензия
 

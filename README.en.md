@@ -1,6 +1,8 @@
 # Selectel S3 MCP Server & AI CLI
 
-Selectel S3 Object Storage for Claude Code, Cursor and Codex: a stdio MCP server, streaming CLI and embedded agent skill in one Go binary. Read-only MCP is the default; large backup files travel through presigned URLs, multipart or confined file tools.
+A Go MCP server, CLI and installable agent skill for Selectel S3 Object Storage. Use Claude Code, Cursor and Codex to inspect objects, recover backups and work with scoped bucket prefixes. Six profile pools; tagging and lifecycle tools are disabled. Read-only MCP access is the default. Independent permission levels control writes; destructive operations use the configured approval policy.
+
+[Русское руководство](README.md) · [Russian S3 MCP server directory](https://stufently.github.io/s3-mcp-ai-cli-kit/en/)
 
 ## Features
 
@@ -60,6 +62,18 @@ Lists return at most 1000 items plus continuation tokens; versions/multipart hav
 
 Analytics scan max_scan entries (default 10000), marking partial results and tokens. Prefix aggregates page via next_result_offset. They are not billing estimates.
 
+## Use case: Pool selection and backup recovery
+
+Select the pool of an existing bucket and inspect an archive before restoring it. `--pool` selects both endpoint and signing region; this example uses the Moscow `ru-6` pool:
+
+```bash
+selectel-s3 --pool ru-6 ls backups/daily/ --json
+selectel-s3 --pool ru-6 stat backups/daily/archive.tar
+selectel-s3 --pool ru-6 cp s3://backups/daily/archive.tar ./restored-selectel.tar
+```
+
+Examples assume an existing `backups` bucket and `daily/archive.tar` object; replace them with your own names. Cloud compatibility still requires [live verification](TASKS.md).
+
 ## CLI
 
 ```bash
@@ -117,6 +131,12 @@ Objects: 50 TB; single PUT: 5 GB; multipart: 10000 parts. Per-bucket requests/se
 
 ## FAQ
 
+**How do I select a Selectel S3 region for MCP?** Set `SELECTEL_S3_POOL` or `--pool` to an ID from the [compatibility table](docs/compat.md). Match the bucket pool; the default is `ru-1`.
+
+**Does this server expose Selectel lifecycle or tagging tools?** Both are disabled in the project profile, so these tools are not registered. Console TTL settings are documented in the [Selectel research](docs/research/selectel-s3.md).
+
+**How can I restore a Selectel S3 backup?** Inspect it with `stat`, then run `cp s3://bucket/key ./new-file`. The CLI streams downloads and publishes files atomically; use a new destination to avoid replacing an existing archive.
+
 **What is an MCP server?** A program exposes agent tools/resources through Model Context Protocol; this server uses stdio.
 
 **How do I connect Claude Code?** Save keys with auth set and use project install or the printed user command.
@@ -128,6 +148,21 @@ Objects: 50 TB; single PUT: 5 GB; multipart: 10000 parts. Per-bucket requests/se
 **Why no lifecycle or tags?** Selectel S3 does not support them. Configure new-object TTL in the panel; tagging tools are excluded.
 
 Planned: Yandex, VK Cloud, Cloud.ru, Timeweb, MWS, Beget.
+
+## Related S3 MCP servers
+
+[Browse the full provider directory](https://stufently.github.io/s3-mcp-ai-cli-kit/en/).
+
+| Provider | Repository | Use case |
+|---|---|---|
+| Selectel | [selectel-s3-mcp-ai-cli](https://github.com/stufently/selectel-s3-mcp-ai-cli) | Pool selection and backup recovery |
+| Yandex Cloud | [yandex-s3-mcp-ai-cli](https://github.com/stufently/yandex-s3-mcp-ai-cli) | Object inventory and backup version inspection |
+| VK Cloud | [vkcloud-s3-mcp-ai-cli](https://github.com/stufently/vkcloud-s3-mcp-ai-cli) | Hotbox/Icebox inspection and regional access |
+| Cloud.ru | [cloudru-s3-mcp-ai-cli](https://github.com/stufently/cloudru-s3-mcp-ai-cli) | Evolution Object Storage access diagnostics |
+| Timeweb Cloud | [timeweb-s3-mcp-ai-cli](https://github.com/stufently/timeweb-s3-mcp-ai-cli) | Archive recovery and bounded prefix usage |
+| MWS | [mws-s3-mcp-ai-cli](https://github.com/stufently/mws-s3-mcp-ai-cli) | HMAC access checks and short-lived archive URLs |
+| Beget | [beget-s3-mcp-ai-cli](https://github.com/stufently/beget-s3-mcp-ai-cli) | Browse and restore files from an existing bucket |
+| Shared Go kit | [s3-mcp-ai-cli-kit](https://github.com/stufently/s3-mcp-ai-cli-kit) | Shared MCP, CLI, safety and CI |
 
 ## License
 

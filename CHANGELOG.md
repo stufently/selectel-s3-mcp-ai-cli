@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add provider-specific Russian/English discovery text, recovery examples, FAQ and links to all S3 MCP projects.
+- Add social preview artwork and a shared bilingual provider directory.
+
 - Remove internal working documents from the public tree while retaining Git history.
 - Move shared MCP/CLI, safety and checks to s3-mcp-ai-cli-kit v0.1.0.
 - Refuse unprotected default writes; gate approved overwrites and require conditional delete for move.
