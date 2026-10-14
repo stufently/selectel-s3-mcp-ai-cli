@@ -161,11 +161,10 @@ def request(method, params, timeout):
                 err = proc.stderr.read().decode("utf-8", "replace")[-2000:]
                 raise SystemExit("server closed stdout during %s; stderr: %s" % (method, err))
             buf += chunk
-    err = b""
-    try:
-        err = os.read(proc.stderr.fileno(), 4000)
-    except OSError:
-        pass
+    # Kill first: a live server that never writes to stderr would block the read.
+    proc.kill()
+    proc.wait()
+    err = proc.stderr.read()[-2000:]
     raise SystemExit("timeout waiting for %s; stderr: %s" % (method, err.decode("utf-8", "replace")))
 
 try:
