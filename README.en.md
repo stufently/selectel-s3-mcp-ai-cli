@@ -28,6 +28,37 @@ After publication: ghcr.io/stufently/selectel-s3-mcp-ai-cli:0.1.0. Build locally
 
 ## Connect to Claude Code, Cursor, Codex
 
+[![Add selectel-s3 MCP server to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=selectel-s3&config=eyJjb21tYW5kIjoiZG9ja2VyIiwiYXJncyI6WyJydW4iLCItaSIsIi0tcm0iLCItZSIsIlNFTEVDVEVMX1MzX0FDQ0VTU19LRVlfSUQiLCItZSIsIlNFTEVDVEVMX1MzX1NFQ1JFVF9BQ0NFU1NfS0VZIiwiLWUiLCJTRUxFQ1RFTF9TM19QT09MIiwiZ2hjci5pby9zdHVmZW50bHkvc2VsZWN0ZWwtczMtbWNwLWFpLWNsaTowLjEuMCJdLCJlbnYiOnsiU0VMRUNURUxfUzNfQUNDRVNTX0tFWV9JRCI6IiR7ZW52OlNFTEVDVEVMX1MzX0FDQ0VTU19LRVlfSUR9IiwiU0VMRUNURUxfUzNfU0VDUkVUX0FDQ0VTU19LRVkiOiIke2VudjpTRUxFQ1RFTF9TM19TRUNSRVRfQUNDRVNTX0tFWX0iLCJTRUxFQ1RFTF9TM19QT09MIjoiJHtlbnY6U0VMRUNURUxfUzNfUE9PTH0ifX0%3D)
+
+The button installs the MCP server from the Docker image `ghcr.io/stufently/selectel-s3-mcp-ai-cli:0.1.0`, read-only. Keys stay out of the config: Cursor fills `${env:…}` from the environment, so set `SELECTEL_S3_ACCESS_KEY_ID` and `SELECTEL_S3_SECRET_ACCESS_KEY` where Cursor starts, and `SELECTEL_S3_POOL` when the bucket is not in the default pool (empty means the default). The same block works for Windsurf (`mcp_config.json`) and by hand in `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "selectel-s3": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "SELECTEL_S3_ACCESS_KEY_ID",
+        "-e",
+        "SELECTEL_S3_SECRET_ACCESS_KEY",
+        "-e",
+        "SELECTEL_S3_POOL",
+        "ghcr.io/stufently/selectel-s3-mcp-ai-cli:0.1.0"
+      ],
+      "env": {
+        "SELECTEL_S3_ACCESS_KEY_ID": "${env:SELECTEL_S3_ACCESS_KEY_ID}",
+        "SELECTEL_S3_SECRET_ACCESS_KEY": "${env:SELECTEL_S3_SECRET_ACCESS_KEY}",
+        "SELECTEL_S3_POOL": "${env:SELECTEL_S3_POOL}"
+      }
+    }
+  }
+}
+```
+
 ```bash
 selectel-s3 mcp install --client cursor --dry-run
 selectel-s3 mcp install --client cursor
