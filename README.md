@@ -19,7 +19,7 @@ A Go MCP server, CLI and agent skill for Selectel S3 Object Storage. Connect Cla
 
 ## Быстрый старт
 
-Возьми бинарь своей платформы из [Releases](https://github.com/stufently/selectel-s3-mcp-ai-cli/releases/latest) (v0.1.1 опубликован; есть в MCP Registry и Smithery) либо собери с Go 1.27.2:
+Возьми бинарь своей платформы из [Releases](https://github.com/stufently/selectel-s3-mcp-ai-cli/releases/latest) (v0.1.0 опубликован; есть в MCP Registry и Smithery) либо собери с Go 1.27.2:
 
 ```bash
 go build -o selectel-s3 ./cmd/selectel-s3
@@ -33,13 +33,13 @@ auth set спрашивает key ID и secret без эха; без TTY чит�
 
 Приоритет: флаги > env > файл. Переменные: SELECTEL_S3_ACCESS_KEY_ID, SELECTEL_S3_SECRET_ACCESS_KEY, SELECTEL_S3_POOL (ru-1), SELECTEL_S3_ENDPOINT. HTTP требует SELECTEL_S3_ALLOW_INSECURE=1.
 
-Образ: ghcr.io/stufently/selectel-s3-mcp-ai-cli:0.1.1; локальная сборка: docker build -t selectel-s3 . Образ запускает MCP от uid 65532, содержит CA-сертификаты. Передай креды через приватное окружение/файл.
+Образ: ghcr.io/stufently/selectel-s3-mcp-ai-cli:0.1.0; локальная сборка: docker build -t selectel-s3 . Образ запускает MCP от uid 65532, содержит CA-сертификаты. Передай креды через приватное окружение/файл.
 
 ## Подключение к Claude Code, Cursor, Codex
 
 [![Add selectel-s3 MCP server to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=selectel-s3&config=eyJjb21tYW5kIjoiZG9ja2VyIiwiYXJncyI6WyJydW4iLCItaSIsIi0tcm0iLCItZSIsIlNFTEVDVEVMX1MzX0FDQ0VTU19LRVlfSUQiLCItZSIsIlNFTEVDVEVMX1MzX1NFQ1JFVF9BQ0NFU1NfS0VZIiwiLWUiLCJTRUxFQ1RFTF9TM19QT09MIiwiZ2hjci5pby9zdHVmZW50bHkvc2VsZWN0ZWwtczMtbWNwLWFpLWNsaTowLjEuMCJdLCJlbnYiOnsiU0VMRUNURUxfUzNfQUNDRVNTX0tFWV9JRCI6IiR7ZW52OlNFTEVDVEVMX1MzX0FDQ0VTU19LRVlfSUR9IiwiU0VMRUNURUxfUzNfU0VDUkVUX0FDQ0VTU19LRVkiOiIke2VudjpTRUxFQ1RFTF9TM19TRUNSRVRfQUNDRVNTX0tFWX0iLCJTRUxFQ1RFTF9TM19QT09MIjoiJHtlbnY6U0VMRUNURUxfUzNfUE9PTH0ifX0%3D)
 
-Кнопка ставит MCP из Docker-образа `ghcr.io/stufently/selectel-s3-mcp-ai-cli:0.1.1` в режиме только чтения. Ключи в конфиг не пишутся: Cursor подставляет `${env:…}` из окружения, поэтому задай `SELECTEL_S3_ACCESS_KEY_ID` и `SELECTEL_S3_SECRET_ACCESS_KEY` там, откуда запускается Cursor; `SELECTEL_S3_POOL` — если бакет не в пуле по умолчанию (пустое значение = пул по умолчанию). Тот же блок — для Windsurf (`mcp_config.json`) и вручную для `~/.cursor/mcp.json`:
+Кнопка ставит MCP из Docker-образа `ghcr.io/stufently/selectel-s3-mcp-ai-cli:0.1.0` в режиме только чтения. Ключи в конфиг не пишутся: Cursor подставляет `${env:…}` из окружения, поэтому задай `SELECTEL_S3_ACCESS_KEY_ID` и `SELECTEL_S3_SECRET_ACCESS_KEY` там, откуда запускается Cursor; `SELECTEL_S3_POOL` — если бакет не в пуле по умолчанию (пустое значение = пул по умолчанию). Тот же блок — для Windsurf (`mcp_config.json`) и вручную для `~/.cursor/mcp.json`:
 
 ```json
 {
@@ -56,7 +56,7 @@ auth set спрашивает key ID и secret без эха; без TTY чит�
         "SELECTEL_S3_SECRET_ACCESS_KEY",
         "-e",
         "SELECTEL_S3_POOL",
-        "ghcr.io/stufently/selectel-s3-mcp-ai-cli:0.1.1"
+        "ghcr.io/stufently/selectel-s3-mcp-ai-cli:0.1.0"
       ],
       "env": {
         "SELECTEL_S3_ACCESS_KEY_ID": "${env:SELECTEL_S3_ACCESS_KEY_ID}",
