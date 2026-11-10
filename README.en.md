@@ -10,7 +10,7 @@ Object CRUD, server-side copy/move, versions, multipart and presigned GET/PUT. B
 
 ## Quick start
 
-Use a platform binary from [Releases](https://github.com/stufently/selectel-s3-mcp-ai-cli/releases/latest) (v0.1.0 is out; also listed in the MCP Registry and Smithery), or build with Go 1.27.2:
+Use a platform binary from [Releases](https://github.com/stufently/selectel-s3-mcp-ai-cli/releases/latest) (v0.1.1 is out; also listed in the MCP Registry and Smithery), or build with Go 1.27.2:
 
 ```bash
 go build -o selectel-s3 ./cmd/selectel-s3
@@ -24,13 +24,13 @@ auth set reads the key ID and secret without terminal echo; non-TTY input suppli
 
 Resolution: flags > env > file. Variables: SELECTEL_S3_ACCESS_KEY_ID, SELECTEL_S3_SECRET_ACCESS_KEY, SELECTEL_S3_POOL (ru-1), SELECTEL_S3_ENDPOINT. HTTP requires SELECTEL_S3_ALLOW_INSECURE=1.
 
-Image: ghcr.io/stufently/selectel-s3-mcp-ai-cli:0.1.0. Build locally with docker build -t selectel-s3 .; the scratch image runs MCP as uid 65532 with CA certificates. Supply a private credentials environment/file setup.
+Image: ghcr.io/stufently/selectel-s3-mcp-ai-cli:0.1.1. Build locally with docker build -t selectel-s3 .; the scratch image runs MCP as uid 65532 with CA certificates. Supply a private credentials environment/file setup.
 
 ## Connect to Claude Code, Cursor, Codex
 
 [![Add selectel-s3 MCP server to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=selectel-s3&config=eyJjb21tYW5kIjoiZG9ja2VyIiwiYXJncyI6WyJydW4iLCItaSIsIi0tcm0iLCItZSIsIlNFTEVDVEVMX1MzX0FDQ0VTU19LRVlfSUQiLCItZSIsIlNFTEVDVEVMX1MzX1NFQ1JFVF9BQ0NFU1NfS0VZIiwiLWUiLCJTRUxFQ1RFTF9TM19QT09MIiwiZ2hjci5pby9zdHVmZW50bHkvc2VsZWN0ZWwtczMtbWNwLWFpLWNsaTowLjEuMCJdLCJlbnYiOnsiU0VMRUNURUxfUzNfQUNDRVNTX0tFWV9JRCI6IiR7ZW52OlNFTEVDVEVMX1MzX0FDQ0VTU19LRVlfSUR9IiwiU0VMRUNURUxfUzNfU0VDUkVUX0FDQ0VTU19LRVkiOiIke2VudjpTRUxFQ1RFTF9TM19TRUNSRVRfQUNDRVNTX0tFWX0iLCJTRUxFQ1RFTF9TM19QT09MIjoiJHtlbnY6U0VMRUNURUxfUzNfUE9PTH0ifX0%3D)
 
-The button installs the MCP server from the Docker image `ghcr.io/stufently/selectel-s3-mcp-ai-cli:0.1.0`, read-only. Keys stay out of the config: Cursor fills `${env:…}` from the environment, so set `SELECTEL_S3_ACCESS_KEY_ID` and `SELECTEL_S3_SECRET_ACCESS_KEY` where Cursor starts, and `SELECTEL_S3_POOL` when the bucket is not in the default pool (empty means the default). The same block works for Windsurf (`mcp_config.json`) and by hand in `~/.cursor/mcp.json`:
+The button installs the MCP server from the Docker image `ghcr.io/stufently/selectel-s3-mcp-ai-cli:0.1.1`, read-only. Keys stay out of the config: Cursor fills `${env:…}` from the environment, so set `SELECTEL_S3_ACCESS_KEY_ID` and `SELECTEL_S3_SECRET_ACCESS_KEY` where Cursor starts, and `SELECTEL_S3_POOL` when the bucket is not in the default pool (empty means the default). The same block works for Windsurf (`mcp_config.json`) and by hand in `~/.cursor/mcp.json`:
 
 ```json
 {
@@ -47,7 +47,7 @@ The button installs the MCP server from the Docker image `ghcr.io/stufently/sele
         "SELECTEL_S3_SECRET_ACCESS_KEY",
         "-e",
         "SELECTEL_S3_POOL",
-        "ghcr.io/stufently/selectel-s3-mcp-ai-cli:0.1.0"
+        "ghcr.io/stufently/selectel-s3-mcp-ai-cli:0.1.1"
       ],
       "env": {
         "SELECTEL_S3_ACCESS_KEY_ID": "${env:SELECTEL_S3_ACCESS_KEY_ID}",
@@ -199,4 +199,4 @@ Planned: Yandex, VK Cloud, Cloud.ru, Timeweb, MWS, Beget.
 
 [MIT](LICENSE). [Facts and assumptions](docs/research/selectel-s3.md). Docker checks: bash scripts/go.sh go test -race ./..., bash scripts/conformance.sh, bash scripts/mcp_smoke.sh, bash scripts/mutation_gate.sh, bash scripts/check_docs.sh. Conformance uses versitygw v1.8.0 and fake keys.
 
-Shared MCP/CLI behavior, safety and checks come from [s3-mcp-ai-cli-kit v0.1.0](https://github.com/stufently/s3-mcp-ai-cli-kit/tree/v0.1.0); this repository owns its embedded profile, thin main and Selectel documentation.
+Shared MCP/CLI behavior, safety and checks come from [s3-mcp-ai-cli-kit v0.1.2](https://github.com/stufently/s3-mcp-ai-cli-kit/tree/v0.1.2); this repository owns its embedded profile, thin main and Selectel documentation.
